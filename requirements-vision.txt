@@ -1,0 +1,5 @@
+numpy>=1.26
+opencv-python>=4.10
+requests>=2.32
+supervision>=0.25
+ultralytics>=8.3

@@ -1,0 +1,31 @@
+.arduino-build/
+.venv/
+__pycache__/
+*.pyc
+
+# Local credentials/configuration
+secrets.h
+vision_alarm/config.json
+
+# Android/Gradle outputs
+.gradle/
+build/
+android_app/.gradle/
+android_app/build/
+android_app/app/build/
+android_app/local.properties
+
+# Build outputs
+*.o
+*.d
+*.elf
+*.bin
+*.map
+
+# Runtime artifacts
+*.log
+*.pid
+
+# Generated/debug media and local model weights
+*.jpg
+*.pt

@@ -1,0 +1,217 @@
+#include "esp_camera.h"
+#include "esp_wifi.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "secrets.h"
+#include <stdarg.h>
+#include <WiFi.h>
+
+#ifndef BUZZER_PIN
+#define BUZZER_PIN 2
+#endif
+
+// ================================================================
+// WLAN-ZUGANG
+// ================================================================
+const char *wlan_name = ssid;
+const char *wlan_passwort = password;
+
+// ================================================================
+// PINBELEGUNG FUER FREENOVE ESP32-S3 (OV3660)
+// ================================================================
+#define PWDN_GPIO_NUM -1
+#define RESET_GPIO_NUM -1
+#define XCLK_GPIO_NUM 15
+#define SIOD_GPIO_NUM 4
+#define SIOC_GPIO_NUM 5
+
+#define Y9_GPIO_NUM 16
+#define Y8_GPIO_NUM 17
+#define Y7_GPIO_NUM 18
+#define Y6_GPIO_NUM 12
+#define Y5_GPIO_NUM 10
+#define Y4_GPIO_NUM 8
+#define Y3_GPIO_NUM 9
+#define Y2_GPIO_NUM 11
+
+#define VSYNC_GPIO_NUM 6
+#define HREF_GPIO_NUM 7
+#define PCLK_GPIO_NUM 13
+
+// Wird aus app_httpd.cpp bereitgestellt.
+void startCameraServer();
+
+// Diese Namen bleiben gleich, weil app_httpd.cpp sie per extern erwartet.
+volatile uint32_t wifiDisconnectCount = 0;
+volatile uint32_t wifiGotIpCount = 0;
+volatile uint32_t buzzerPulseUntilMs = 0;
+
+static SemaphoreHandle_t fern_log_mutex = NULL;
+static String fern_log_puffer;
+static const size_t FERN_LOG_MAX_BYTES = 16384;
+
+static void fern_log_anhaengen_gesperrt(const char *nachricht) {
+  fern_log_puffer += nachricht;
+  size_t ueberlauf =
+      fern_log_puffer.length() > FERN_LOG_MAX_BYTES
+          ? fern_log_puffer.length() - FERN_LOG_MAX_BYTES
+          : 0;
+  if (ueberlauf > 0) {
+    fern_log_puffer.remove(0, ueberlauf);
+  }
+}
+
+void fern_log_puffer_initialisieren() {
+  if (fern_log_mutex == NULL) {
+    fern_log_mutex = xSemaphoreCreateMutex();
+  }
+}
+
+// Namen bleiben gleich fuer die Kopplung mit app_httpd.cpp.
+void remoteLogf(const char *format, ...) {
+  char nachricht[256];
+  va_list argumente;
+  va_start(argumente, format);
+  vsnprintf(nachricht, sizeof(nachricht), format, argumente);
+  va_end(argumente);
+
+  Serial.print(nachricht);
+
+  if (fern_log_mutex != NULL &&
+      xSemaphoreTake(fern_log_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+    fern_log_anhaengen_gesperrt(nachricht);
+    xSemaphoreGive(fern_log_mutex);
+  }
+}
+
+void remoteLogln(const char *nachricht) {
+  Serial.println(nachricht);
+
+  if (fern_log_mutex != NULL &&
+      xSemaphoreTake(fern_log_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+    fern_log_anhaengen_gesperrt(nachricht);
+    fern_log_anhaengen_gesperrt("\n");
+    xSemaphoreGive(fern_log_mutex);
+  }
+}
+
+String getRemoteLogSnapshot(bool nach_lesen_leeren) {
+  String schnappschuss;
+  if (fern_log_mutex != NULL &&
+      xSemaphoreTake(fern_log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    schnappschuss = fern_log_puffer;
+    if (nach_lesen_leeren) {
+      fern_log_puffer = "";
+    }
+    xSemaphoreGive(fern_log_mutex);
+  }
+  return schnappschuss;
+}
+
+void bei_wlan_ereignis(WiFiEvent_t ereignis, WiFiEventInfo_t info) {
+  switch (ereignis) {
+  case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+    wifiDisconnectCount++;
+    remoteLogf("[WIFI] disconnected reason=%u total=%lu\n",
+               info.wifi_sta_disconnected.reason,
+               (unsigned long)wifiDisconnectCount);
+    break;
+  case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+    wifiGotIpCount++;
+    remoteLogf("[WIFI] got_ip total=%lu ip=%s\n",
+               (unsigned long)wifiGotIpCount,
+               WiFi.localIP().toString().c_str());
+    break;
+  default:
+    break;
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  Serial.setDebugOutput(false);
+  fern_log_puffer_initialisieren();
+  Serial.println();
+
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+
+  camera_config_t kamera_konfiguration;
+  kamera_konfiguration.ledc_channel = LEDC_CHANNEL_0;
+  kamera_konfiguration.ledc_timer = LEDC_TIMER_0;
+  kamera_konfiguration.pin_d0 = Y2_GPIO_NUM;
+  kamera_konfiguration.pin_d1 = Y3_GPIO_NUM;
+  kamera_konfiguration.pin_d2 = Y4_GPIO_NUM;
+  kamera_konfiguration.pin_d3 = Y5_GPIO_NUM;
+  kamera_konfiguration.pin_d4 = Y6_GPIO_NUM;
+  kamera_konfiguration.pin_d5 = Y7_GPIO_NUM;
+  kamera_konfiguration.pin_d6 = Y8_GPIO_NUM;
+  kamera_konfiguration.pin_d7 = Y9_GPIO_NUM;
+  kamera_konfiguration.pin_xclk = XCLK_GPIO_NUM;
+  kamera_konfiguration.pin_pclk = PCLK_GPIO_NUM;
+  kamera_konfiguration.pin_vsync = VSYNC_GPIO_NUM;
+  kamera_konfiguration.pin_href = HREF_GPIO_NUM;
+  kamera_konfiguration.pin_sccb_sda = SIOD_GPIO_NUM;
+  kamera_konfiguration.pin_sccb_scl = SIOC_GPIO_NUM;
+  kamera_konfiguration.pin_pwdn = PWDN_GPIO_NUM;
+  kamera_konfiguration.pin_reset = RESET_GPIO_NUM;
+  kamera_konfiguration.xclk_freq_hz = 15000000;
+  kamera_konfiguration.frame_size = FRAMESIZE_VGA;
+  kamera_konfiguration.pixel_format = PIXFORMAT_JPEG;
+  kamera_konfiguration.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+  kamera_konfiguration.fb_location = CAMERA_FB_IN_PSRAM;
+  kamera_konfiguration.jpeg_quality = 16;
+  kamera_konfiguration.fb_count = 1;
+
+  if (psramFound()) {
+    kamera_konfiguration.jpeg_quality = 14;
+    kamera_konfiguration.fb_count = 2;
+    kamera_konfiguration.frame_size = FRAMESIZE_VGA;
+    kamera_konfiguration.grab_mode = CAMERA_GRAB_LATEST;
+    remoteLogln("psramFound");
+  } else {
+    kamera_konfiguration.frame_size = FRAMESIZE_VGA;
+    kamera_konfiguration.fb_location = CAMERA_FB_IN_DRAM;
+  }
+
+  esp_err_t fehler = esp_camera_init(&kamera_konfiguration);
+  if (fehler != ESP_OK) {
+    remoteLogf("Kamera-Init fehlgeschlagen: 0x%x\n", fehler);
+    return;
+  }
+
+  sensor_t *kamera_sensor = esp_camera_sensor_get();
+  if (kamera_sensor->id.PID == OV3660_PID) {
+    kamera_sensor->set_vflip(kamera_sensor, 1);
+    kamera_sensor->set_brightness(kamera_sensor, 1);
+    kamera_sensor->set_saturation(kamera_sensor, -2);
+  }
+
+  WiFi.onEvent(bei_wlan_ereignis);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(wlan_name, wlan_passwort);
+  WiFi.setSleep(false);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  remoteLogln("WiFi verbunden!");
+  esp_wifi_set_ps(WIFI_PS_NONE);
+  remoteLogln("WLAN Power Management deaktiviert fuer stabilen Stream");
+
+  startCameraServer();
+
+  Serial.print("Kamera bereit! Oeffne: http://");
+  Serial.println(WiFi.localIP());
+}
+
+void loop() {
+  uint32_t buzzer_ende_zeit = buzzerPulseUntilMs;
+  if (buzzer_ende_zeit != 0 && (int32_t)(millis() - buzzer_ende_zeit) >= 0) {
+    digitalWrite(BUZZER_PIN, LOW);
+    buzzerPulseUntilMs = 0;
+  }
+
+  delay(5);
+}

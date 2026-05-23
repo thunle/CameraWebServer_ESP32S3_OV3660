@@ -1,0 +1,43 @@
+{
+  "alarm": {
+    "cooldown_seconds": 5.0,
+    "image_dir": "vision_alarm/alarm_images",
+    "local_terminal_bell": false,
+    "pulse_ms": 1500,
+    "trigger_without_zones": false
+  },
+  "bytetrack": {
+    "frame_rate": 15,
+    "lost_track_buffer": 30,
+    "minimum_matching_threshold": 0.8,
+    "track_activation_threshold": 0.35
+  },
+  "confidence": 0.4,
+  "device": "",
+  "esp32_host": "192.168.178.50",
+  "http_port": 80,
+  "image_size": 416,
+  "iou_threshold": 0.45,
+  "model": "yolo26n.pt",
+  "monitor_api": {
+    "enabled": true,
+    "host": "0.0.0.0",
+    "port": 8765
+  },
+  "show_window": true,
+  "snapshot_interval_ms": 250,
+  "sensor_fusion": {
+    "dark_alarm_on_radar": false,
+    "enabled": true,
+    "fail_open_on_sensor_error": true,
+    "inactive_reset_seconds": 2.0,
+    "poll_interval_ms": 200,
+    "radar_hold_ms": 2500,
+    "require_daylight_for_vision": true
+  },
+  "source_mode": "snapshot",
+  "stream_port": 81,
+  "window_name": "ESP32 Vision Alarm",
+  "zone_resolution": null,
+  "zones": []
+}
