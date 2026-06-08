@@ -38,6 +38,13 @@
 #define BUZZER_PIN 2
 #endif
 
+#ifndef BUZZER_ACTIVE_HIGH
+#define BUZZER_ACTIVE_HIGH 1
+#endif
+
+#define BUZZER_ON_LEVEL (BUZZER_ACTIVE_HIGH ? HIGH : LOW)
+#define BUZZER_OFF_LEVEL (BUZZER_ACTIVE_HIGH ? LOW : HIGH)
+
 #ifndef RADAR_PIN
 #define RADAR_PIN 3
 #endif
@@ -50,12 +57,24 @@
 #define RADAR_ACTIVE_HIGH 1
 #endif
 
+#ifndef RADAR_UART_RX_PIN
+#define RADAR_UART_RX_PIN 41
+#endif
+
+#ifndef RADAR_UART_TX_PIN
+#define RADAR_UART_TX_PIN 40
+#endif
+
+#ifndef RADAR_UART_BAUD
+#define RADAR_UART_BAUD 115200
+#endif
+
 #ifndef LIGHT_DAY_THRESHOLD
-#define LIGHT_DAY_THRESHOLD 1200
+#define LIGHT_DAY_THRESHOLD 100
 #endif
 
 #ifndef DARK_RADAR_ALARM_ENABLED
-#define DARK_RADAR_ALARM_ENABLED 1
+#define DARK_RADAR_ALARM_ENABLED 0
 #endif
 
 #ifndef DARK_ALARM_COOLDOWN_MS

@@ -51,12 +51,20 @@ extern volatile uint32_t sensorLastReadMs;
 extern volatile uint32_t radarLastMotionMs;
 extern volatile uint32_t radarMotionCount;
 extern volatile uint32_t darkAlarmCount;
+extern volatile uint32_t radarUartByteCount;
+extern volatile uint32_t radarUartLastRxMs;
+extern volatile uint32_t radarUartFrameCount;
+extern volatile uint32_t radarUartCurrentBaud;
+extern volatile int radarUartRange;
 extern volatile int lightRaw;
 extern volatile bool radarActive;
 extern volatile bool daylightActive;
+extern volatile bool radarUartPresent;
 extern void remoteLogf(const char *format, ...);
 extern void remoteLogln(const char *message);
 extern String getRemoteLogSnapshot(bool clearAfterRead);
+extern String getRadarUartLastHexSnapshot();
+extern String getRadarUartLastTextSnapshot();
 
 typedef struct {
   size_t size;
@@ -406,22 +414,36 @@ static esp_err_t sensors_handler(httpd_req_t *req) {
   uint32_t now = millis();
   uint32_t last_read = sensorLastReadMs;
   uint32_t last_motion = radarLastMotionMs;
+  uint32_t radar_uart_last_rx = radarUartLastRxMs;
   uint32_t buzzer_until = buzzerPulseUntilMs;
+  String radar_uart_hex = getRadarUartLastHexSnapshot();
+  String radar_uart_text = getRadarUartLastTextSnapshot();
 
-  char response[384];
+  char response[896];
   int response_len = snprintf(
       response, sizeof(response),
       "{\"radar_active\":%s,\"daylight\":%s,\"light_raw\":%d,"
       "\"light_day_threshold\":%d,\"radar_motion_count\":%lu,"
       "\"dark_alarm_count\":%lu,\"last_motion_ms\":%lu,"
-      "\"sensor_age_ms\":%lu,\"buzzer_active\":%s,\"uptime_ms\":%lu}",
+      "\"sensor_age_ms\":%lu,\"buzzer_active\":%s,\"uptime_ms\":%lu,"
+      "\"radar_uart_baud\":%lu,\"radar_uart_bytes\":%lu,\"radar_uart_frames\":%lu,"
+      "\"radar_uart_present\":%s,\"radar_uart_range\":%d,"
+      "\"radar_uart_last_rx_ms\":%lu,\"radar_uart_age_ms\":%lu,"
+      "\"radar_uart_last_text\":\"%s\",\"radar_uart_last_hex\":\"%s\"}",
       radarActive ? "true" : "false", daylightActive ? "true" : "false",
       lightRaw, LIGHT_DAY_THRESHOLD, (unsigned long)radarMotionCount,
       (unsigned long)darkAlarmCount, (unsigned long)last_motion,
       (unsigned long)(now - last_read),
       (buzzer_until != 0 && (int32_t)(now - buzzer_until) < 0) ? "true"
                                                                : "false",
-      (unsigned long)now);
+      (unsigned long)now, (unsigned long)radarUartCurrentBaud,
+      (unsigned long)radarUartByteCount,
+      (unsigned long)radarUartFrameCount,
+      radarUartPresent ? "true" : "false", radarUartRange,
+      (unsigned long)radar_uart_last_rx,
+      radar_uart_last_rx == 0 ? 0 : (unsigned long)(now - radar_uart_last_rx),
+      radar_uart_text.c_str(),
+      radar_uart_hex.c_str());
 
   httpd_resp_set_type(req, "application/json");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
@@ -520,11 +542,11 @@ static esp_err_t buzzer_handler(httpd_req_t *req) {
   duration_ms = (uint32_t)atoi(duration_param);
 
   if (strcmp(state, "on") == 0) {
-    digitalWrite(BUZZER_PIN, HIGH);
+    digitalWrite(BUZZER_PIN, BUZZER_ON_LEVEL);
     buzzerPulseUntilMs = duration_ms > 0 ? millis() + duration_ms : 0;
     remoteLogf("Buzzer ON duration_ms=%lu\n", (unsigned long)duration_ms);
   } else {
-    digitalWrite(BUZZER_PIN, LOW);
+    digitalWrite(BUZZER_PIN, BUZZER_OFF_LEVEL);
     buzzerPulseUntilMs = 0;
     remoteLogln("Buzzer OFF");
   }

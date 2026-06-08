@@ -315,10 +315,27 @@ public class MainActivity extends Activity {
 
     private void loadSettings() {
         hostInput.setText(prefs.getString(KEY_HOST, "192.168.178.53"));
-        httpPortInput.setText(String.valueOf(prefs.getInt(KEY_HTTP_PORT, 80)));
-        streamPortInput.setText(String.valueOf(prefs.getInt(KEY_STREAM_PORT, 81)));
+        httpPortInput.setText(String.valueOf(getPortSetting(KEY_HTTP_PORT, 80)));
+        streamPortInput.setText(String.valueOf(getPortSetting(KEY_STREAM_PORT, 81)));
         monitorHostInput.setText(prefs.getString(KEY_MONITOR_HOST, "10.0.2.2"));
-        monitorPortInput.setText(String.valueOf(prefs.getInt(KEY_MONITOR_PORT, 8765)));
+        monitorPortInput.setText(String.valueOf(getPortSetting(KEY_MONITOR_PORT, 8765)));
+    }
+
+    private int getPortSetting(String key, int fallback) {
+        Object value = prefs.getAll().get(key);
+        if (value instanceof Number) {
+            int port = ((Number) value).intValue();
+            return port > 0 && port <= 65535 ? port : fallback;
+        }
+        if (value instanceof String) {
+            try {
+                int port = Integer.parseInt(((String) value).trim());
+                return port > 0 && port <= 65535 ? port : fallback;
+            } catch (NumberFormatException ignored) {
+                return fallback;
+            }
+        }
+        return fallback;
     }
 
     private void saveSettings() {
@@ -356,6 +373,10 @@ public class MainActivity extends Activity {
                 int light = json.optInt("light_raw", 0);
                 int threshold = json.optInt("light_day_threshold", 0);
                 int radarCount = json.optInt("radar_motion_count", 0);
+                int radarUartBytes = json.optInt("radar_uart_bytes", 0);
+                boolean radarUartPresent = json.optBoolean("radar_uart_present", false);
+                int radarUartRange = json.optInt("radar_uart_range", -1);
+                String radarUartText = json.optString("radar_uart_last_text", "");
                 int darkCount = json.optInt("dark_alarm_count", 0);
                 boolean buzzer = json.optBoolean("buzzer_active", false);
                 long sensorAge = json.optLong("sensor_age_ms", 0);
@@ -367,8 +388,12 @@ public class MainActivity extends Activity {
                             daylight ? "Tagbetrieb" : "Nachtbetrieb", sensorAge));
                     sensorText.setTextColor(daylight ? GREEN : AMBER);
                     radarText.setText(String.format(Locale.GERMANY,
-                            "Radar: %s, Bewegungen: %d",
-                            radar ? "Bewegung erkannt" : "keine Bewegung", radarCount));
+                            "Radar: %s, Bewegungen: %d, UART: %s, Range: %s, Bytes: %d%s",
+                            radar ? "Bewegung erkannt" : "keine Bewegung", radarCount,
+                            radarUartPresent ? "ON" : "OFF",
+                            radarUartRange >= 0 ? String.valueOf(radarUartRange) : "-",
+                            radarUartBytes,
+                            radarUartText.isEmpty() ? "" : ", Text: " + radarUartText));
                     radarText.setTextColor(radar ? RED : GREEN);
                     lightText.setText(String.format(Locale.GERMANY,
                             "Licht: %d / Schwelle %d (%s)",
