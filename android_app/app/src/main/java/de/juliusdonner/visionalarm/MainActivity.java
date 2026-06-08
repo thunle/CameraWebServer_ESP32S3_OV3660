@@ -76,6 +76,7 @@ public class MainActivity extends Activity {
     private ImageView alarmImage;
 
     private volatile boolean streamRunning = false;
+    private volatile boolean appInForeground = false;
     private volatile HttpURLConnection streamConnection;
 
     @Override
@@ -88,8 +89,21 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        appInForeground = true;
+    }
+
+    @Override
+    protected void onPause() {
+        appInForeground = false;
+        stopStream(false);
+        super.onPause();
+    }
+
+    @Override
     protected void onDestroy() {
-        stopStream();
+        stopStream(false);
         if (poller != null) {
             poller.shutdownNow();
         }
@@ -496,15 +510,21 @@ public class MainActivity extends Activity {
     }
 
     private void stopStream() {
+        stopStream(true);
+    }
+
+    private void stopStream(boolean updateStatus) {
         streamRunning = false;
         HttpURLConnection connection = streamConnection;
         if (connection != null) {
             connection.disconnect();
         }
-        mainHandler.post(() -> {
-            streamText.setText("Stream: gestoppt");
-            streamText.setTextColor(TEXT);
-        });
+        if (updateStatus) {
+            mainHandler.post(() -> {
+                streamText.setText("Stream: gestoppt");
+                streamText.setTextColor(TEXT);
+            });
+        }
     }
 
     private void streamLoop() {
@@ -527,11 +547,12 @@ public class MainActivity extends Activity {
                 readMjpeg(input);
             }
         } catch (Exception ex) {
-            if (streamRunning) {
+            if (streamRunning && appInForeground) {
                 mainHandler.post(() -> {
-                    streamText.setText("Streamfehler: " + cleanError(ex));
-                    streamText.setTextColor(RED);
+                    streamText.setText("Stream: Snapshot-Fallback");
+                    streamText.setTextColor(AMBER);
                 });
+                snapshotStreamLoop(ex);
             }
         } finally {
             streamRunning = false;
@@ -540,6 +561,46 @@ public class MainActivity extends Activity {
                 connection.disconnect();
             }
             streamConnection = null;
+        }
+    }
+
+    private void snapshotStreamLoop(Exception streamError) {
+        int failures = 0;
+        while (streamRunning) {
+            try {
+                byte[] bytes = getBytes(httpUrl("/capture"), 5000);
+                Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                if (bitmap == null) {
+                    throw new IllegalStateException("JPEG konnte nicht dekodiert werden");
+                }
+                failures = 0;
+                mainHandler.post(() -> {
+                    cameraImage.setImageBitmap(bitmap);
+                    streamText.setText("Stream: Snapshot-Fallback live");
+                    streamText.setTextColor(GREEN);
+                });
+                Thread.sleep(250);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (Exception ex) {
+                failures++;
+                if (failures >= 3) {
+                    if (appInForeground) {
+                        mainHandler.post(() -> {
+                            streamText.setText("Streamfehler: " + cleanError(streamError));
+                            streamText.setTextColor(RED);
+                        });
+                    }
+                    return;
+                }
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
         }
     }
 
