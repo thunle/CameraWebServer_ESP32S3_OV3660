@@ -41,6 +41,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run without the OpenCV preview window.",
     )
 
+    controller_parser = subparsers.add_parser(
+        "controller",
+        help="Expose a remote API that can start or stop the monitor process.",
+    )
+    add_common_runtime_args(controller_parser)
+    controller_parser.add_argument(
+        "--monitor-worker-port",
+        type=int,
+        help="Internal port used by the child monitor process.",
+    )
+
     return parser
 
 
@@ -64,6 +75,15 @@ def add_common_runtime_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--image-size", type=int, help="Inference image size.")
     parser.add_argument("--device", help="Inference device, e.g. cpu or 0.")
     parser.add_argument("--pulse-ms", type=int, help="ESP32 buzzer pulse length.")
+    parser.add_argument(
+        "--monitor-api-host",
+        help="Host/interface for the laptop monitor API or controller.",
+    )
+    parser.add_argument(
+        "--monitor-api-port",
+        type=int,
+        help="Port for the laptop monitor API or controller.",
+    )
     parser.add_argument(
         "--cooldown",
         type=float,
@@ -129,6 +149,10 @@ def apply_overrides(config: AppConfig, args: argparse.Namespace) -> AppConfig:
         config.device = args.device
     if args.pulse_ms is not None:
         config.alarm.pulse_ms = args.pulse_ms
+    if getattr(args, "monitor_api_host", None) is not None:
+        config.monitor_api.host = args.monitor_api_host
+    if getattr(args, "monitor_api_port", None) is not None:
+        config.monitor_api.port = args.monitor_api_port
     if args.cooldown is not None:
         config.alarm.cooldown_seconds = args.cooldown
     if getattr(args, "terminal_bell", False):
@@ -171,9 +195,17 @@ def run_draw_zones(config: AppConfig, config_path: Path) -> int:
     return 0
 
 
-def run_monitor(config: AppConfig) -> int:
-    monitor = VisionMonitor(config)
+def run_monitor(config: AppConfig, config_path: Path) -> int:
+    monitor = VisionMonitor(config, config_path)
     monitor.run()
+    return 0
+
+
+def run_controller(config: AppConfig, config_path: Path, worker_port: int | None) -> int:
+    from .controller import VisionMonitorController
+
+    controller = VisionMonitorController(config, config_path, worker_port=worker_port)
+    controller.run()
     return 0
 
 
@@ -186,7 +218,9 @@ def main() -> int:
     if args.command == "draw-zones":
         return run_draw_zones(config, config_path)
     if args.command == "monitor":
-        return run_monitor(config)
+        return run_monitor(config, config_path)
+    if args.command == "controller":
+        return run_controller(config, config_path, args.monitor_worker_port)
 
     parser.error(f"Unsupported command: {args.command}")
     return 2
