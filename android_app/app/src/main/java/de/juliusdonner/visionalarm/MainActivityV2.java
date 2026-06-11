@@ -26,6 +26,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -48,16 +49,25 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.FileReader;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.InterfaceAddress;
+import java.net.NetworkInterface;
 import java.net.URL;
 import java.security.MessageDigest;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Enumeration;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -66,8 +76,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MainActivityV2 extends Activity {
+    private static final String TAG = "VisionAlarm";
     private static final String PREFS = "vision_alarm";
     private static final String KEY_HOST = "host";
     private static final String KEY_HTTP_PORT = "http_port";
@@ -75,6 +87,13 @@ public class MainActivityV2 extends Activity {
     private static final String KEY_MONITOR_HOST = "monitor_host";
     private static final String KEY_MONITOR_PORT = "monitor_port";
     private static final String KEY_SELECTED_MODE = "selected_mode";
+    private static final String KEY_CONNECTION_PROFILE = "connection_profile";
+    private static final String KEY_PHONE_STREAM_ENABLED = "phone_stream_enabled";
+    private static final String PROFILE_NORMAL = "normal";
+    private static final String PROFILE_ANDROID_HOTSPOT = "android_hotspot";
+    private static final String DEFAULT_ESP_HOST = "192.168.178.53";
+    private static final String DEFAULT_ANDROID_HOTSPOT_ESP_HOST = "192.168.124.222";
+    private static final String DEFAULT_ANDROID_HOTSPOT_MONITOR_HOST = "192.168.43.1";
 
     private static final int BLACK = Color.rgb(16, 16, 18);
     private static final int TEXT = Color.rgb(21, 21, 24);
@@ -115,6 +134,8 @@ public class MainActivityV2 extends Activity {
     private TextView alarmText;
     private TextView monitorText;
     private TextView streamText;
+    private TextView connectionProfileText;
+    private Switch phoneStreamSwitch;
     private TextView espStatusTileText;
     private TextView laptopStatusTileText;
     private volatile boolean laptopMonitorActive;
@@ -164,6 +185,8 @@ public class MainActivityV2 extends Activity {
     private volatile boolean streamRunning = false;
     private volatile boolean appInForeground = false;
     private volatile HttpURLConnection streamConnection;
+    private volatile String connectionProfile = PROFILE_NORMAL;
+    private volatile boolean phoneStreamEnabled = true;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -1531,7 +1554,7 @@ public class MainActivityV2 extends Activity {
         LinearLayout panel = card(TILE, dp(TILE_RADIUS_DP));
         panel.setPadding(dp(16), dp(16), dp(16), dp(16));
 
-        hostInput = input("192.168.178.53");
+        hostInput = input(DEFAULT_ESP_HOST);
         httpPortInput = input("80");
         streamPortInput = input("81");
         monitorHostInput = input("10.0.2.2");
@@ -1541,8 +1564,25 @@ public class MainActivityV2 extends Activity {
         monitorPortInput.setInputType(InputType.TYPE_CLASS_NUMBER);
 
         panel.addView(text("Verbindung", 16, TEXT, Typeface.BOLD));
+        connectionProfileText = valueText("");
+        panel.addView(connectionProfileText);
+
+        LinearLayout profileButtons = new LinearLayout(this);
+        profileButtons.setOrientation(LinearLayout.HORIZONTAL);
+        profileButtons.setPadding(0, dp(8), 0, dp(4));
+        profileButtons.addView(button("Schul-WLAN", BLUE, v -> applyConnectionProfile(PROFILE_NORMAL, true)));
+        profileButtons.addView(button("Android-Hotspot", AMBER, v -> applyConnectionProfile(PROFILE_ANDROID_HOTSPOT, true)));
+        panel.addView(profileButtons);
+
         panel.addView(label("ESP32-IP oder Hostname"));
         panel.addView(hostInput);
+        Button scanButton = button("ESP im Hotspot suchen", BLACK, v -> scanForEsp());
+        LinearLayout scanRow = new LinearLayout(this);
+        scanRow.setOrientation(LinearLayout.HORIZONTAL);
+        scanRow.setPadding(0, dp(8), 0, 0);
+        scanRow.addView(scanButton);
+        panel.addView(scanRow);
+
         panel.addView(label("HTTP-Port"));
         panel.addView(httpPortInput);
         panel.addView(label("Stream-Port"));
@@ -1551,6 +1591,11 @@ public class MainActivityV2 extends Activity {
         panel.addView(monitorHostInput);
         panel.addView(label("Monitor-API-Port"));
         panel.addView(monitorPortInput);
+
+        TextView presentationTitle = text("Praesentation", 16, TEXT, Typeface.BOLD);
+        presentationTitle.setPadding(0, dp(18), 0, 0);
+        panel.addView(presentationTitle);
+        panel.addView(phoneStreamRow());
 
         TextView behaviorTitle = text("Alarmverhalten", 16, TEXT, Typeface.BOLD);
         behaviorTitle.setPadding(0, dp(18), 0, 0);
@@ -1569,6 +1614,39 @@ public class MainActivityV2 extends Activity {
         connectionText.setPadding(0, dp(10), 0, 0);
         panel.addView(connectionText);
         return panel;
+    }
+
+    private LinearLayout phoneStreamRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(10), 0, 0);
+
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        labels.addView(text("Stream auf diesem Handy", 14, TEXT, Typeface.BOLD));
+        labels.addView(text("Aus = Handy steuert nur, Laptop zeigt Video", 12, MUTED, Typeface.NORMAL));
+        row.addView(labels, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        phoneStreamSwitch = new Switch(this);
+        phoneStreamSwitch.setShowText(false);
+        phoneStreamSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (suppressSwitchEvents) {
+                return;
+            }
+            phoneStreamEnabled = isChecked;
+            prefs.edit().putBoolean(KEY_PHONE_STREAM_ENABLED, isChecked).apply();
+            if (!isChecked) {
+                stopStream();
+                setLiveState(false, "Handy steuert nur. Stream am Laptop oeffnen.");
+            } else {
+                captureFrame();
+            }
+        });
+        applyTapAnimation(phoneStreamSwitch);
+        row.addView(phoneStreamSwitch);
+        return row;
     }
 
     private LinearLayout settingSwitchRow(String title, boolean buzzer) {
@@ -1819,7 +1897,7 @@ public class MainActivityV2 extends Activity {
 
     private LinearLayout.LayoutParams tileParams(boolean left) {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                0, dp(126), 1f);
+                0, dp(142), 1f);
         params.leftMargin = left ? 0 : dp(8);
         params.rightMargin = left ? dp(8) : 0;
         params.bottomMargin = dp(16);
@@ -1838,6 +1916,8 @@ public class MainActivityV2 extends Activity {
 
     private TextView tileValue(String value, int color) {
         TextView text = text(value, 12, color, Typeface.BOLD);
+        text.setSingleLine(false);
+        text.setMaxLines(3);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -2210,8 +2290,10 @@ public class MainActivityV2 extends Activity {
     }
 
     private void loadSettings() {
+        connectionProfile = prefs.getString(KEY_CONNECTION_PROFILE, PROFILE_NORMAL);
+        phoneStreamEnabled = prefs.getBoolean(KEY_PHONE_STREAM_ENABLED, true);
         if (hostInput != null) {
-            hostInput.setText(prefs.getString(KEY_HOST, "192.168.178.53"));
+            hostInput.setText(prefs.getString(KEY_HOST, DEFAULT_ESP_HOST));
         }
         if (httpPortInput != null) {
             httpPortInput.setText(String.valueOf(getPortSetting(KEY_HTTP_PORT, 80)));
@@ -2224,6 +2306,12 @@ public class MainActivityV2 extends Activity {
         }
         if (monitorPortInput != null) {
             monitorPortInput.setText(String.valueOf(getPortSetting(KEY_MONITOR_PORT, 8765)));
+        }
+        updateConnectionProfileUi();
+        if (phoneStreamSwitch != null) {
+            suppressSwitchEvents = true;
+            phoneStreamSwitch.setChecked(phoneStreamEnabled);
+            suppressSwitchEvents = false;
         }
         selectedMode = prefs.getInt(KEY_SELECTED_MODE, MODE_HOME);
         applySelectedModeUi();
@@ -2277,9 +2365,63 @@ public class MainActivityV2 extends Activity {
                 .putInt(KEY_STREAM_PORT, parsePort(streamPortInput, 81))
                 .putString(KEY_MONITOR_HOST, monitorHost())
                 .putInt(KEY_MONITOR_PORT, parsePort(monitorPortInput, 8765))
+                .putString(KEY_CONNECTION_PROFILE, connectionProfile)
+                .putBoolean(KEY_PHONE_STREAM_ENABLED, phoneStreamEnabled)
                 .apply();
         setConnection("Einstellungen gespeichert.", GREEN);
         refreshAll();
+    }
+
+    private void applyConnectionProfile(String profile, boolean saveNow) {
+        connectionProfile = profile;
+        if (PROFILE_ANDROID_HOTSPOT.equals(profile)) {
+            if (hostInput != null) {
+                hostInput.setText(DEFAULT_ANDROID_HOTSPOT_ESP_HOST);
+            }
+            if (httpPortInput != null) {
+                httpPortInput.setText("80");
+            }
+            if (streamPortInput != null) {
+                streamPortInput.setText("81");
+            }
+            if (monitorHostInput != null &&
+                    (monitorHostInput.getText().toString().trim().isEmpty()
+                            || "10.0.2.2".equals(monitorHostInput.getText().toString().trim()))) {
+                monitorHostInput.setText(DEFAULT_ANDROID_HOTSPOT_MONITOR_HOST);
+            }
+            phoneStreamEnabled = false;
+            if (phoneStreamSwitch != null) {
+                suppressSwitchEvents = true;
+                phoneStreamSwitch.setChecked(false);
+                suppressSwitchEvents = false;
+            }
+            stopStream();
+            setLiveState(false, "Hotspot-Modus: Stream am Laptop oeffnen.");
+        } else {
+            phoneStreamEnabled = true;
+            if (phoneStreamSwitch != null) {
+                suppressSwitchEvents = true;
+                phoneStreamSwitch.setChecked(true);
+                suppressSwitchEvents = false;
+            }
+        }
+        updateConnectionProfileUi();
+        if (saveNow) {
+            saveSettings();
+        }
+    }
+
+    private void updateConnectionProfileUi() {
+        if (connectionProfileText == null) {
+            return;
+        }
+        if (PROFILE_ANDROID_HOTSPOT.equals(connectionProfile)) {
+            connectionProfileText.setText("Modus: Android-Hotspot. ESP und Laptop mit dem Handy-Hotspot verbinden; das Handy steuert nur, wenn der Laptop das Video zeigt.");
+            connectionProfileText.setTextColor(AMBER);
+        } else {
+            connectionProfileText.setText("Modus: Schul-WLAN / normales WLAN.");
+            connectionProfileText.setTextColor(MUTED);
+        }
     }
 
     private void startPolling() {
@@ -2294,6 +2436,144 @@ public class MainActivityV2 extends Activity {
         refreshStatusOnly();
         refreshMonitorOnly();
         captureFrame();
+    }
+
+    private void scanForEsp() {
+        setConnection("Suche ESP32 im Hotspot...", AMBER);
+        Toast.makeText(this, "ESP32-Suche gestartet", Toast.LENGTH_SHORT).show();
+        ioExecutor.execute(() -> {
+            List<String> hotspotClients = hotspotClientIpsFromArp();
+            Log.i(TAG, "ESP scan ARP clients=" + hotspotClients);
+            for (String candidate : hotspotClients) {
+                if (isEspCandidate(candidate)) {
+                    Log.i(TAG, "ESP found via ARP candidate=" + candidate);
+                    mainHandler.post(() -> applyFoundEspHost(candidate));
+                    return;
+                }
+            }
+
+            LinkedHashSet<String> scanPrefixes = new LinkedHashSet<>();
+            scanPrefixes.addAll(localIpv4Prefixes());
+            scanPrefixes.addAll(Arrays.asList(
+                    "192.168.43.",
+                    "192.168.42.",
+                    "192.168.44.",
+                    "192.168.45.",
+                    "192.168.49.",
+                    "192.168.50.",
+                    "172.20.10.",
+                    "172.16.0.",
+                    "172.16.1.",
+                    "192.168.137.",
+                    "192.168.1.",
+                    "192.168.4."));
+            List<String> prefixes = new ArrayList<>(scanPrefixes);
+            Log.i(TAG, "ESP scan prefixes=" + prefixes);
+            mainHandler.post(() -> setConnection(String.format(Locale.GERMANY,
+                    "Suche ESP32: %d Hotspot-Geraete, %d Netze...",
+                    hotspotClients.size(), prefixes.size()), AMBER));
+            AtomicBoolean found = new AtomicBoolean(false);
+            ExecutorService scanner = Executors.newFixedThreadPool(24);
+            for (String prefix : prefixes) {
+                for (int i = 2; i <= 254; i++) {
+                    if (found.get()) {
+                        break;
+                    }
+                    String candidate = prefix + i;
+                    scanner.execute(() -> {
+                        if (!found.get() && isEspCandidate(candidate)) {
+                            if (found.compareAndSet(false, true)) {
+                                Log.i(TAG, "ESP found via scan candidate=" + candidate);
+                                mainHandler.post(() -> applyFoundEspHost(candidate));
+                            }
+                        }
+                    });
+                }
+            }
+            scanner.shutdown();
+            try {
+                scanner.awaitTermination(12, TimeUnit.SECONDS);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+            if (!found.get()) {
+                Log.w(TAG, "ESP scan finished without match");
+                mainHandler.post(() -> setConnection(
+                        "Kein ESP32 gefunden. In der App die Hotspot-IP manuell eintragen.", ERROR));
+            }
+        });
+    }
+
+    private void applyFoundEspHost(String candidate) {
+        if (hostInput != null) {
+            hostInput.setText(candidate);
+        }
+        prefs.edit().putString(KEY_HOST, candidate).apply();
+        setConnection("ESP32 gefunden: http://" + candidate, GREEN);
+        refreshAll();
+    }
+
+    private List<String> hotspotClientIpsFromArp() {
+        LinkedHashSet<String> ips = new LinkedHashSet<>();
+        try (BufferedReader reader = new BufferedReader(new FileReader("/proc/net/arp"))) {
+            String line;
+            boolean first = true;
+            while ((line = reader.readLine()) != null) {
+                if (first) {
+                    first = false;
+                    continue;
+                }
+                String[] parts = line.trim().split("\\s+");
+                if (parts.length >= 4 && parts[0].matches("\\d+\\.\\d+\\.\\d+\\.\\d+")
+                        && !"00:00:00:00:00:00".equals(parts[3])) {
+                    ips.add(parts[0]);
+                }
+            }
+        } catch (Exception ignored) {
+            // Some Android builds restrict this file; prefix scanning remains as fallback.
+        }
+        return new ArrayList<>(ips);
+    }
+
+    private List<String> localIpv4Prefixes() {
+        LinkedHashSet<String> prefixes = new LinkedHashSet<>();
+        try {
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            if (interfaces == null) {
+                return new ArrayList<>(prefixes);
+            }
+            for (NetworkInterface networkInterface : Collections.list(interfaces)) {
+                if (!networkInterface.isUp() || networkInterface.isLoopback()) {
+                    continue;
+                }
+                for (InterfaceAddress interfaceAddress : networkInterface.getInterfaceAddresses()) {
+                    InetAddress address = interfaceAddress.getAddress();
+                    if (!(address instanceof Inet4Address) || !address.isSiteLocalAddress()) {
+                        continue;
+                    }
+                    String hostAddress = address.getHostAddress();
+                    String[] parts = hostAddress.split("\\.");
+                    if (parts.length == 4) {
+                        Log.i(TAG, "Interface " + networkInterface.getName()
+                                + " address=" + hostAddress);
+                        prefixes.add(parts[0] + "." + parts[1] + "." + parts[2] + ".");
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // Fallback prefixes are used below.
+        }
+        return new ArrayList<>(prefixes);
+    }
+
+    private boolean isEspCandidate(String host) {
+        try {
+            String response = getString("http://" + host + ":" + currentPort(KEY_HTTP_PORT, httpPortInput, 80)
+                    + "/status", 700);
+            return response.contains("framesize") || response.contains("quality");
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private void refreshSensorsOnly() {
@@ -2381,14 +2661,21 @@ public class MainActivityV2 extends Activity {
         ioExecutor.execute(() -> {
             try {
                 JSONObject json = getJson(httpUrl("/status"));
+                String ssid = json.optString("wifi_ssid", "unbekannt");
+                String ip = json.optString("wifi_ip", host());
+                int rssi = json.optInt("wifi_rssi", 0);
                 String status = String.format(Locale.GERMANY,
-                        "Kamera: q=%d, fs=%d, b=%d",
+                        "Kamera: q=%d, fs=%d, b=%d | WLAN: %s, IP: %s, RSSI: %d dBm",
                         json.optInt("quality", -1),
                         json.optInt("framesize", -1),
-                        json.optInt("brightness", 0));
+                        json.optInt("brightness", 0),
+                        ssid,
+                        ip,
+                        rssi);
                 mainHandler.post(() -> {
                     if (espStatusTileText != null) {
-                        espStatusTileText.setText("ONLINE");
+                        espStatusTileText.setText(String.format(Locale.GERMANY,
+                                "%s\n%s\n%d dBm", ssid, ip, rssi));
                         espStatusTileText.setTextColor(GREEN);
                     }
                     if (cameraText != null) {
@@ -2553,7 +2840,9 @@ public class MainActivityV2 extends Activity {
                         cameraImage.setImageBitmap(bitmap);
                     }
                     if (!streamRunning) {
-                        setLiveState(false, "");
+                        setLiveState(false, phoneStreamEnabled
+                                ? ""
+                                : "Handy steuert nur. Stream am Laptop oeffnen.");
                     }
                 });
             } catch (Exception ex) {
@@ -2568,6 +2857,10 @@ public class MainActivityV2 extends Activity {
 
     private void startStream() {
         if (streamRunning) {
+            return;
+        }
+        if (!phoneStreamEnabled) {
+            setLiveState(false, "Handy steuert nur. Stream am Laptop oeffnen.");
             return;
         }
         streamRunning = true;

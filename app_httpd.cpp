@@ -11,6 +11,7 @@
 #include "fb_gfx.h"
 #include "img_converters.h"
 #include "sdkconfig.h"
+#include <WiFi.h>
 
 #if defined(ARDUINO_ARCH_ESP32) && defined(CONFIG_ARDUHAL_ESP_LOG)
 #include "esp32-hal-log.h"
@@ -390,8 +391,16 @@ static esp_err_t cmd_handler(httpd_req_t *req) {
 static esp_err_t status_handler(httpd_req_t *req) {
   static char json_response[1024];
   sensor_t *s = esp_camera_sensor_get();
+  String wifiSsid = WiFi.SSID();
+  String localIp = WiFi.localIP().toString();
+  String gatewayIp = WiFi.gatewayIP().toString();
   char *p = json_response;
   *p++ = '{';
+  p += sprintf(p, "\"wifi_connected\":%u,", WiFi.status() == WL_CONNECTED ? 1 : 0);
+  p += sprintf(p, "\"wifi_ssid\":\"%s\",", wifiSsid.c_str());
+  p += sprintf(p, "\"wifi_ip\":\"%s\",", localIp.c_str());
+  p += sprintf(p, "\"wifi_gateway\":\"%s\",", gatewayIp.c_str());
+  p += sprintf(p, "\"wifi_rssi\":%d,", WiFi.RSSI());
   p += sprintf(p, "\"xclk\":%u,", s->xclk_freq_hz / 1000000);
   p += sprintf(p, "\"pixformat\":%u,", s->pixformat);
   p += sprintf(p, "\"framesize\":%u,", s->status.framesize);
@@ -598,8 +607,8 @@ void startCameraServer() {
   config.send_wait_timeout = 1;
   config.recv_wait_timeout = 1;
   config.lru_purge_enable = true;
-  config.max_open_sockets = 2;
-  config.backlog_conn = 1;
+  config.max_open_sockets = 4;
+  config.backlog_conn = 2;
   config.max_uri_handlers = 18;
 
   httpd_uri_t index_uri = {.uri = "/",

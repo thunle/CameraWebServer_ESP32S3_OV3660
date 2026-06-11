@@ -1209,24 +1209,24 @@ class VisionMonitor:
         if banner:
             self._draw_banner(annotated, banner, (0, 0, 180), (255, 255, 255), 8)
 
-        status_top = annotated.shape[0] - 72
-        self._draw_banner(
-            annotated,
-            self._sensor_status_text,
-            (20, 20, 20),
-            (220, 220, 220),
-            max(8, status_top),
+        fps_text = f"{self._fps:.1f} fps"
+        text_size, baseline = cv2.getTextSize(
+            fps_text,
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            1,
         )
-        timing_text = (
-            f"fps={self._fps:.1f} src={self._timings.source_ms:.0f}ms "
-            f"infer={self._timings.infer_ms:.0f}ms total={self._timings.total_ms:.0f}ms"
-        )
-        self._draw_banner(
+        text_x = max(8, annotated.shape[1] - text_size[0] - 12)
+        text_y = max(20, annotated.shape[0] - 12 - baseline)
+        cv2.putText(
             annotated,
-            timing_text,
-            (20, 20, 20),
-            (220, 220, 220),
-            max(44, status_top + 36),
+            fps_text,
+            (text_x, text_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (255, 255, 255),
+            1,
+            cv2.LINE_AA,
         )
 
         return annotated

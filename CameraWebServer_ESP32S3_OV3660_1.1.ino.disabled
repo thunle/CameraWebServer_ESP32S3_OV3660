@@ -182,7 +182,8 @@ void setup() {
 
   sensor_t *kamera_sensor = esp_camera_sensor_get();
   if (kamera_sensor->id.PID == OV3660_PID) {
-    kamera_sensor->set_vflip(kamera_sensor, 1);
+    kamera_sensor->set_vflip(kamera_sensor, 0);
+    kamera_sensor->set_hmirror(kamera_sensor, 1);
     kamera_sensor->set_brightness(kamera_sensor, 1);
     kamera_sensor->set_saturation(kamera_sensor, -2);
   }

@@ -35,7 +35,7 @@
 // Alarm hardware
 // ===================
 #ifndef BUZZER_PIN
-#define BUZZER_PIN 2
+#define BUZZER_PIN 14
 #endif
 
 #ifndef BUZZER_ACTIVE_HIGH
@@ -46,7 +46,7 @@
 #define BUZZER_OFF_LEVEL (BUZZER_ACTIVE_HIGH ? LOW : HIGH)
 
 #ifndef RADAR_PIN
-#define RADAR_PIN 3
+#define RADAR_PIN 2
 #endif
 
 #ifndef LIGHT_SENSOR_PIN
@@ -71,6 +71,18 @@
 
 #ifndef LIGHT_DAY_THRESHOLD
 #define LIGHT_DAY_THRESHOLD 100
+#endif
+
+#ifndef SENSOR_READ_INTERVAL_MS
+#define SENSOR_READ_INTERVAL_MS 250
+#endif
+
+#ifndef RADAR_UART_READ_INTERVAL_MS
+#define RADAR_UART_READ_INTERVAL_MS 50
+#endif
+
+#ifndef RADAR_UART_LOG_INTERVAL_MS
+#define RADAR_UART_LOG_INTERVAL_MS 2000
 #endif
 
 #ifndef DARK_RADAR_ALARM_ENABLED

@@ -191,7 +191,9 @@ void readRadarUart() {
   static uint8_t frame[64];
   static size_t frameLen = 0;
   static uint32_t lastByteMs = 0;
+  static uint32_t lastRadarUartLogMs = 0;
   bool gotByte = false;
+  uint32_t nowMs = millis();
 
   while (Serial1.available() > 0) {
     int value = Serial1.read();
@@ -199,9 +201,9 @@ void readRadarUart() {
       break;
     }
     gotByte = true;
-    lastByteMs = millis();
+    lastByteMs = nowMs;
     radarUartByteCount++;
-    radarUartLastRxMs = lastByteMs;
+    radarUartLastRxMs = nowMs;
 
     if (frameLen < sizeof(frame)) {
       frame[frameLen++] = (uint8_t)value;
@@ -212,8 +214,8 @@ void readRadarUart() {
   }
 
   bool radarUartStale =
-      radarUartLastRxMs == 0 || millis() - radarUartLastRxMs >= 10000;
-  if (radarUartStale && millis() - lastRadarUartBaudSwitchMs >= 4000) {
+      radarUartLastRxMs == 0 || nowMs - radarUartLastRxMs >= 10000;
+  if (radarUartStale && nowMs - lastRadarUartBaudSwitchMs >= 4000) {
     radarUartBaudIndex =
         (radarUartBaudIndex + 1) %
         (sizeof(RADAR_UART_BAUD_CANDIDATES) /
@@ -222,7 +224,7 @@ void readRadarUart() {
     sendLd2420InitCommands();
   }
 
-  if (frameLen == 0 || (!gotByte && millis() - lastByteMs < 30)) {
+  if (frameLen == 0 || (!gotByte && nowMs - lastByteMs < 30)) {
     return;
   }
 
@@ -275,9 +277,12 @@ void readRadarUart() {
   }
 
   radarUartFrameCount++;
-  remoteLogf("[RADAR UART] bytes=%lu frame=%lu text=\"%s\" range=%d hex=%s\n",
-             (unsigned long)radarUartByteCount,
-             (unsigned long)radarUartFrameCount, text, radarUartRange, hex);
+  if (nowMs - lastRadarUartLogMs >= RADAR_UART_LOG_INTERVAL_MS) {
+    lastRadarUartLogMs = nowMs;
+    remoteLogf("[RADAR UART] bytes=%lu frame=%lu text=\"%s\" range=%d hex=%s\n",
+               (unsigned long)radarUartByteCount,
+               (unsigned long)radarUartFrameCount, text, radarUartRange, hex);
+  }
   frameLen = 0;
 }
 
@@ -344,6 +349,106 @@ void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
   }
 }
 
+static bool hasWifiSsid(const char *networkSsid) {
+  return networkSsid != NULL && strlen(networkSsid) > 0;
+}
+
+static bool connectToWifiNetwork(const char *label, const char *networkSsid,
+                                 const char *networkPassword,
+                                 uint32_t timeoutMs) {
+  if (!hasWifiSsid(networkSsid)) {
+    return false;
+  }
+
+  remoteLogf("[WIFI] connecting profile=%s ssid=\"%s\"\n", label, networkSsid);
+  WiFi.disconnect(true, true);
+  delay(400);
+  WiFi.mode(WIFI_OFF);
+  delay(400);
+  WiFi.mode(WIFI_STA);
+  WiFi.setHostname("esp32s3-EED1C8");
+  WiFi.setSleep(false);
+
+  int networkCount = WiFi.scanNetworks(false, true);
+  bool targetFound = false;
+  for (int i = 0; i < networkCount; i++) {
+    if (WiFi.SSID(i) == networkSsid) {
+      targetFound = true;
+      remoteLogf("[WIFI] scan found target ssid=\"%s\" rssi=%d channel=%d enc=%d\n",
+                 WiFi.SSID(i).c_str(), WiFi.RSSI(i), WiFi.channel(i),
+                 WiFi.encryptionType(i));
+    }
+  }
+  if (!targetFound) {
+    remoteLogf("[WIFI] scan did not find target ssid=\"%s\" networks=%d\n",
+               networkSsid, networkCount);
+  }
+  WiFi.scanDelete();
+
+  if (strcmp(label, "android_hotspot") == 0 && hasWifiSsid(demoStaticIp) &&
+      hasWifiSsid(demoGatewayIp)) {
+    IPAddress localIp;
+    IPAddress gatewayIp;
+    IPAddress subnetMask;
+    if (localIp.fromString(demoStaticIp) && gatewayIp.fromString(demoGatewayIp) &&
+        subnetMask.fromString(demoSubnetMask)) {
+      WiFi.config(localIp, gatewayIp, subnetMask, gatewayIp);
+      remoteLogf("[WIFI] static demo ip=%s gateway=%s subnet=%s\n",
+                 demoStaticIp, demoGatewayIp, demoSubnetMask);
+    } else {
+      remoteLogln("[WIFI] invalid static demo IP config, using DHCP");
+    }
+  } else {
+    WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE);
+  }
+  WiFi.begin(networkSsid, networkPassword);
+
+  uint32_t startMs = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - startMs < timeoutMs) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println();
+
+  if (WiFi.status() == WL_CONNECTED) {
+    remoteLogf("[WIFI] connected profile=%s ssid=\"%s\" ip=%s rssi=%d\n",
+               label, WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(),
+               WiFi.RSSI());
+    return true;
+  }
+
+  remoteLogf("[WIFI] profile=%s unavailable after %lums\n", label,
+             (unsigned long)timeoutMs);
+  return false;
+}
+
+static void connectToConfiguredWifi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.setHostname("esp32s3-EED1C8");
+  WiFi.setSleep(false); // Wichtig fuer stabilen Stream
+  WiFi.persistent(false);
+  WiFi.setAutoReconnect(false);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    bool demoIsDifferent =
+        hasWifiSsid(demoSsid) && (!hasWifiSsid(ssid) || strcmp(demoSsid, ssid) != 0);
+    if (demoIsDifferent && connectToWifiNetwork("android_hotspot", demoSsid,
+                                                demoPassword, 30000)) {
+      return;
+    }
+    if (demoWifiOnly) {
+      remoteLogln("[WIFI] demoWifiOnly enabled, normal WiFi fallback skipped");
+      delay(2000);
+      continue;
+    }
+    if (connectToWifiNetwork("normal_wifi", ssid, password, 30000)) {
+      return;
+    }
+    remoteLogln("[WIFI] no configured network reachable, retrying...");
+    delay(2000);
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   Serial.setDebugOutput(false);
@@ -378,7 +483,7 @@ void setup() {
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 15000000;
-  config.frame_size = FRAMESIZE_VGA; // Weniger Daten pro Frame fuer mehr FPS
+  config.frame_size = FRAMESIZE_VGA;
   config.pixel_format = PIXFORMAT_JPEG;
   config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
   config.fb_location = CAMERA_FB_IN_PSRAM;
@@ -408,21 +513,15 @@ void setup() {
   // Sensor-Feineinstellung für OV3660
   sensor_t *s = esp_camera_sensor_get();
   if (s->id.PID == OV3660_PID) {
-    s->set_vflip(s, 1);
+    s->set_vflip(s, 0);
+    s->set_hmirror(s, 1);
     s->set_brightness(s, 1);
     s->set_saturation(s, -2);
   }
 
   // WiFi Verbindung aufbauen
   WiFi.onEvent(onWiFiEvent);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-  WiFi.setSleep(false); // Wichtig fuer stabilen Stream
-
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
+  connectToConfiguredWifi();
   remoteLogln("WiFi verbunden!");
   esp_wifi_set_ps(WIFI_PS_NONE);
   remoteLogln("WLAN Power Management deaktiviert fuer stabilen Stream");
@@ -436,10 +535,15 @@ void setup() {
 
 void loop() {
   static uint32_t lastSensorReadLoopMs = 0;
-  readRadarUart();
+  static uint32_t lastRadarUartReadLoopMs = 0;
 
   uint32_t nowMs = millis();
-  if (nowMs - lastSensorReadLoopMs >= 50) {
+  if (nowMs - lastRadarUartReadLoopMs >= RADAR_UART_READ_INTERVAL_MS) {
+    lastRadarUartReadLoopMs = nowMs;
+    readRadarUart();
+  }
+
+  if (nowMs - lastSensorReadLoopMs >= SENSOR_READ_INTERVAL_MS) {
     lastSensorReadLoopMs = nowMs;
     readAlarmSensors();
   }

@@ -42,3 +42,16 @@ android_app/app/build/outputs/apk/debug/app-debug.apk
 8. Tap `Speichern`, then use dashboard, alarm app, capture, stream, buzzer and logs.
 
 The app uses cleartext HTTP because the ESP32 firmware serves local HTTP only.
+
+## Presentation backup with Android hotspot
+
+1. Put the Android hotspot SSID and password into `secrets.h`.
+2. Flash the ESP32 and start the Android hotspot.
+3. Connect the laptop to the same Android hotspot.
+4. Open the app settings and tap `Android-Hotspot`.
+5. Tap `ESP im Hotspot suchen` or enter the ESP32 IP from the serial monitor.
+6. Leave `Stream auf diesem Handy` off when the laptop presents the video.
+7. Open `http://ESP-IP` or `http://ESP-IP:81/stream` on the laptop.
+
+This keeps the ESP32 in normal Wi-Fi client mode and avoids two simultaneous
+MJPEG viewers during the demo.
