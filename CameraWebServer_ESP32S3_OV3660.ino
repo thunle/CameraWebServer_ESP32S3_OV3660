@@ -17,6 +17,7 @@ void startCameraServer();
 volatile uint32_t wifiDisconnectCount = 0;
 volatile uint32_t wifiGotIpCount = 0;
 volatile uint32_t buzzerPulseUntilMs = 0;
+volatile bool buzzerAlarmEnabled = true;
 volatile uint32_t sensorLastReadMs = 0;
 volatile uint32_t radarLastMotionMs = 0;
 volatile uint32_t radarMotionCount = 0;
@@ -124,6 +125,11 @@ String getRadarUartLastTextSnapshot() {
 }
 
 static void pulseBuzzerFor(uint32_t durationMs) {
+  if (!buzzerAlarmEnabled) {
+    remoteLogf("[BUZZER] alarm pulse suppressed duration=%ums\n",
+               (unsigned int)durationMs);
+    return;
+  }
   digitalWrite(BUZZER_PIN, BUZZER_ON_LEVEL);
   buzzerPulseUntilMs = durationMs > 0 ? millis() + durationMs : 0;
 }

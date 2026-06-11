@@ -47,6 +47,7 @@ httpd_handle_t camera_httpd = NULL;
 extern volatile uint32_t wifiDisconnectCount;
 extern volatile uint32_t wifiGotIpCount;
 extern volatile uint32_t buzzerPulseUntilMs;
+extern volatile bool buzzerAlarmEnabled;
 extern volatile uint32_t sensorLastReadMs;
 extern volatile uint32_t radarLastMotionMs;
 extern volatile uint32_t radarMotionCount;
@@ -425,7 +426,8 @@ static esp_err_t sensors_handler(httpd_req_t *req) {
       "{\"radar_active\":%s,\"daylight\":%s,\"light_raw\":%d,"
       "\"light_day_threshold\":%d,\"radar_motion_count\":%lu,"
       "\"dark_alarm_count\":%lu,\"last_motion_ms\":%lu,"
-      "\"sensor_age_ms\":%lu,\"buzzer_active\":%s,\"uptime_ms\":%lu,"
+      "\"sensor_age_ms\":%lu,\"buzzer_active\":%s,"
+      "\"buzzer_alarm_enabled\":%s,\"uptime_ms\":%lu,"
       "\"radar_uart_baud\":%lu,\"radar_uart_bytes\":%lu,\"radar_uart_frames\":%lu,"
       "\"radar_uart_present\":%s,\"radar_uart_range\":%d,"
       "\"radar_uart_last_rx_ms\":%lu,\"radar_uart_age_ms\":%lu,"
@@ -436,6 +438,7 @@ static esp_err_t sensors_handler(httpd_req_t *req) {
       (unsigned long)(now - last_read),
       (buzzer_until != 0 && (int32_t)(now - buzzer_until) < 0) ? "true"
                                                                : "false",
+      buzzerAlarmEnabled ? "true" : "false",
       (unsigned long)now, (unsigned long)radarUartCurrentBaud,
       (unsigned long)radarUartByteCount,
       (unsigned long)radarUartFrameCount,
@@ -523,7 +526,10 @@ static esp_err_t buzzer_handler(httpd_req_t *req) {
   size_t buf_len = httpd_req_get_url_query_len(req) + 1;
   char state[16] = "off";
   char duration_param[16] = "0";
+  char alarm_enabled_param[16] = "";
+  char force_param[8] = "0";
   uint32_t duration_ms = 0;
+  bool has_alarm_enabled = false;
 
   if (buf_len > 1) {
     buf = (char *)malloc(buf_len);
@@ -535,16 +541,39 @@ static esp_err_t buzzer_handler(httpd_req_t *req) {
       httpd_query_key_value(buf, "state", state, sizeof(state));
       httpd_query_key_value(buf, "duration_ms", duration_param,
                             sizeof(duration_param));
+      has_alarm_enabled =
+          httpd_query_key_value(buf, "alarm_enabled", alarm_enabled_param,
+                                sizeof(alarm_enabled_param)) == ESP_OK;
+      httpd_query_key_value(buf, "force", force_param, sizeof(force_param));
     }
     free(buf);
   }
 
   duration_ms = (uint32_t)atoi(duration_param);
 
-  if (strcmp(state, "on") == 0) {
+  if (has_alarm_enabled) {
+    buzzerAlarmEnabled = strcmp(alarm_enabled_param, "1") == 0 ||
+                         strcmp(alarm_enabled_param, "true") == 0 ||
+                         strcmp(alarm_enabled_param, "on") == 0;
+    if (!buzzerAlarmEnabled) {
+      digitalWrite(BUZZER_PIN, BUZZER_OFF_LEVEL);
+      buzzerPulseUntilMs = 0;
+    }
+    remoteLogf("Buzzer alarm_enabled=%u\n", buzzerAlarmEnabled ? 1 : 0);
+  } else if (strcmp(state, "on") == 0) {
+    bool forced = strcmp(force_param, "1") == 0 ||
+                  strcmp(force_param, "true") == 0 ||
+                  strcmp(force_param, "on") == 0;
+    if (duration_ms > 0 && !buzzerAlarmEnabled && !forced) {
+      digitalWrite(BUZZER_PIN, BUZZER_OFF_LEVEL);
+      buzzerPulseUntilMs = 0;
+      remoteLogf("Buzzer alarm pulse suppressed duration_ms=%lu\n",
+                 (unsigned long)duration_ms);
+    } else {
     digitalWrite(BUZZER_PIN, BUZZER_ON_LEVEL);
     buzzerPulseUntilMs = duration_ms > 0 ? millis() + duration_ms : 0;
     remoteLogf("Buzzer ON duration_ms=%lu\n", (unsigned long)duration_ms);
+    }
   } else {
     digitalWrite(BUZZER_PIN, BUZZER_OFF_LEVEL);
     buzzerPulseUntilMs = 0;
@@ -552,9 +581,12 @@ static esp_err_t buzzer_handler(httpd_req_t *req) {
   }
 
   char response[96];
-  int response_len = snprintf(
-      response, sizeof(response), "{\"state\":\"%s\",\"duration_ms\":%lu}",
-      strcmp(state, "on") == 0 ? "on" : "off", (unsigned long)duration_ms);
+  int response_len = snprintf(response, sizeof(response),
+                              "{\"state\":\"%s\",\"duration_ms\":%lu,"
+                              "\"alarm_enabled\":%s}",
+                              strcmp(state, "on") == 0 ? "on" : "off",
+                              (unsigned long)duration_ms,
+                              buzzerAlarmEnabled ? "true" : "false");
 
   httpd_resp_set_type(req, "application/json");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
