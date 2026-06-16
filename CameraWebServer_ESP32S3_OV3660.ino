@@ -430,18 +430,20 @@ static void connectToConfiguredWifi() {
   WiFi.setAutoReconnect(false);
 
   while (WiFi.status() != WL_CONNECTED) {
+    if (connectToWifiNetwork("normal_wifi", ssid, password, 30000)) {
+      return;
+    }
+
+    if (demoWifiOnly) {
+      remoteLogln("[WIFI] demoWifiOnly enabled, retrying demo WiFi only");
+      delay(2000);
+      continue;
+    }
+
     bool demoIsDifferent =
         hasWifiSsid(demoSsid) && (!hasWifiSsid(ssid) || strcmp(demoSsid, ssid) != 0);
     if (demoIsDifferent && connectToWifiNetwork("android_hotspot", demoSsid,
                                                 demoPassword, 30000)) {
-      return;
-    }
-    if (demoWifiOnly) {
-      remoteLogln("[WIFI] demoWifiOnly enabled, normal WiFi fallback skipped");
-      delay(2000);
-      continue;
-    }
-    if (connectToWifiNetwork("normal_wifi", ssid, password, 30000)) {
       return;
     }
     remoteLogln("[WIFI] no configured network reachable, retrying...");
