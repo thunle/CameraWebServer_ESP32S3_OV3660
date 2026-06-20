@@ -1,3 +1,4 @@
+#line 1 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\board_config.h"
 #ifndef BOARD_CONFIG_H
 #define BOARD_CONFIG_H
 

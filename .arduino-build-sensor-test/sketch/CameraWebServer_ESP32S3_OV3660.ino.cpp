@@ -1,5 +1,6 @@
+#include <Arduino.h>
+#line 1 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
 #include "esp_camera.h"
-#include "esp_system.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -41,25 +42,6 @@ volatile bool radarEnergyPresent = false;
 char radarUartLastHex[193] = "";
 char radarUartLastText[65] = "";
 uint16_t radarGateEnergy[16] = {0};
-static constexpr uint32_t RADAR_CALIBRATION_DURATION_MS = 60000;
-static bool radarCalibrationActive = false;
-static bool radarCalibrationApplied = false;
-static uint32_t radarCalibrationStartedAtMs = 0;
-static uint32_t radarCalibrationSampleCount = 0;
-static float radarCalibrationMoveFactor = 0.5f;
-static float radarCalibrationStillFactor = 0.5f;
-static uint16_t radarCalibrationPeak[16] = {0};
-static uint8_t radarMinimumGate = 1;
-static uint8_t radarMaximumGate = 12;
-static uint8_t radarPresenceDelay = 5;
-static uint16_t radarTriggerThreshold[16] = {
-    60000, 30000, 400, 250, 250, 250, 250, 250,
-    250,   250,   250, 250, 250, 250, 250, 250};
-static uint16_t radarMaintainThreshold[16] = {
-    40000, 20000, 200, 200, 200, 200, 200, 150,
-    150,   100,   100, 100, 100, 100, 100, 100};
-static bool radarZoneActive = false;
-static uint32_t radarZoneLastDetectionMs = 0;
 
 static SemaphoreHandle_t remoteLogMutex = NULL;
 static SemaphoreHandle_t radarUartMutex = NULL;
@@ -72,38 +54,64 @@ static uint32_t lastSensorLogMs = 0;
 static uint32_t lastWifiReconnectAttemptMs = 0;
 static uint32_t wifiDisconnectedSinceMs = 0;
 static uint32_t lastWifiStatusLogMs = 0;
-static uint32_t nextWifiReconnectAttemptMs = 0;
-static uint32_t wifiReconnectBackoffMs = 10000;
 static bool previousRadarActive = false;
 static char lastConnectedWifiProfile[20] = "";
-static char preferredWifiProfile[20] = "auto";
-static bool wifiProfileSwitchPending = false;
-static uint32_t wifiProfileSwitchAtMs = 0;
 static const uint32_t RADAR_UART_BAUD_CANDIDATES[] = {RADAR_UART_BAUD, 256000};
 static size_t radarUartBaudIndex = 0;
 static uint32_t lastRadarUartBaudSwitchMs = 0;
 static WiFiServer simpleHttpServer(80);
 
-const char *getPreferredWifiProfile() {
-  return preferredWifiProfile;
-}
-
-bool requestPreferredWifiProfile(const char *profile) {
-  if (profile == NULL ||
-      (strcmp(profile, "auto") != 0 && strcmp(profile, "normal") != 0 &&
-       strcmp(profile, "hotspot") != 0)) {
-    return false;
-  }
-  strncpy(preferredWifiProfile, profile, sizeof(preferredWifiProfile));
-  preferredWifiProfile[sizeof(preferredWifiProfile) - 1] = '\0';
-  settingsPrefs.putString("wifi_profile", preferredWifiProfile);
-  wifiProfileSwitchPending = true;
-  // Return the HTTP response before disconnecting the network used by the app.
-  wifiProfileSwitchAtMs = millis() + 800;
-  remoteLogf("[WIFI] requested profile=%s\n", preferredWifiProfile);
-  return true;
-}
-
+#line 62 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+static void appendRemoteLogLocked(const char *message);
+#line 72 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void initRemoteLogBuffer();
+#line 81 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void remoteLogf(const char *format, ...);
+#line 97 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void remoteLogln(const char *message);
+#line 108 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+String getRemoteLogSnapshot(bool clearAfterRead);
+#line 121 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+String getRadarUartLastHexSnapshot();
+#line 131 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+String getRadarUartLastTextSnapshot();
+#line 141 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void getRadarGateEnergySnapshot(uint16_t *out, size_t count);
+#line 155 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+static void pulseBuzzerFor(uint32_t durationMs);
+#line 171 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void beginRadarUart(uint32_t baud);
+#line 195 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void sendRadarUartBytes(const char *label, const uint8_t *data, size_t len);
+#line 201 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void sendLd2420InitCommands();
+#line 228 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+static bool isLd2420EnergyFrame(const uint8_t *frame, size_t len);
+#line 236 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+static void parseLd2420EnergyFrame(const uint8_t *frame, uint32_t nowMs);
+#line 258 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void readRadarUart();
+#line 405 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void readAlarmSensors();
+#line 464 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+static void sendSimpleHttpJson(WiFiClient &client, const char *body);
+#line 476 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+static void handleSimpleHttpClient();
+#line 527 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+const char * wifiDisconnectReasonName(uint8_t reason);
+#line 564 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void onWiFiEvent(arduino_event_id_t event, arduino_event_info_t info);
+#line 591 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+static bool hasWifiSsid(const char *networkSsid);
+#line 595 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+static bool connectToWifiNetwork(const char *label, const char *networkSsid, const char *networkPassword, uint32_t timeoutMs);
+#line 744 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+static void connectToConfiguredWifi();
+#line 805 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void setup();
+#line 931 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void loop();
+#line 62 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
 static void appendRemoteLogLocked(const char *message) {
   remoteLogBuffer += message;
   size_t overflow = remoteLogBuffer.length() > REMOTE_LOG_MAX_BYTES
@@ -197,102 +205,6 @@ void getRadarGateEnergySnapshot(uint16_t *out, size_t count) {
   }
 }
 
-bool startRadarCalibration(float moveFactor, float stillFactor) {
-  if (moveFactor < 0.0f || moveFactor > 5.0f || stillFactor < 0.0f ||
-      stillFactor > 5.0f || radarUartMutex == NULL ||
-      xSemaphoreTake(radarUartMutex, pdMS_TO_TICKS(50)) != pdTRUE) {
-    return false;
-  }
-  if (radarCalibrationActive) {
-    xSemaphoreGive(radarUartMutex);
-    return false;
-  }
-  memset(radarCalibrationPeak, 0, sizeof(radarCalibrationPeak));
-  radarCalibrationMoveFactor = moveFactor;
-  radarCalibrationStillFactor = stillFactor;
-  radarCalibrationSampleCount = 0;
-  radarCalibrationStartedAtMs = millis();
-  radarCalibrationApplied = false;
-  radarCalibrationActive = true;
-  xSemaphoreGive(radarUartMutex);
-  remoteLogf("[RADAR CAL] started duration=%lums move_factor=%.2f still_factor=%.2f\n",
-             (unsigned long)RADAR_CALIBRATION_DURATION_MS, moveFactor,
-             stillFactor);
-  return true;
-}
-
-bool cancelRadarCalibration() {
-  if (radarUartMutex == NULL ||
-      xSemaphoreTake(radarUartMutex, pdMS_TO_TICKS(50)) != pdTRUE) {
-    return false;
-  }
-  bool wasActive = radarCalibrationActive;
-  radarCalibrationActive = false;
-  xSemaphoreGive(radarUartMutex);
-  if (wasActive) {
-    remoteLogln("[RADAR CAL] cancelled");
-  }
-  return wasActive;
-}
-
-void getRadarCalibrationStatus(bool *active, bool *ready, bool *applied,
-                               uint32_t *elapsedMs, uint32_t *sampleCount,
-                               float *moveFactor, float *stillFactor,
-                               uint16_t *peaks, size_t peakCount) {
-  const uint32_t now = millis();
-  if (radarUartMutex == NULL ||
-      xSemaphoreTake(radarUartMutex, pdMS_TO_TICKS(50)) != pdTRUE) {
-    if (active) *active = false;
-    if (ready) *ready = false;
-    if (applied) *applied = false;
-    if (elapsedMs) *elapsedMs = 0;
-    if (sampleCount) *sampleCount = 0;
-    if (moveFactor) *moveFactor = 0.0f;
-    if (stillFactor) *stillFactor = 0.0f;
-    if (peaks) memset(peaks, 0, peakCount * sizeof(uint16_t));
-    return;
-  }
-  const bool isActive = radarCalibrationActive;
-  const uint32_t elapsed =
-      isActive ? now - radarCalibrationStartedAtMs : 0;
-  if (active) *active = isActive;
-  if (ready) *ready = isActive && elapsed >= RADAR_CALIBRATION_DURATION_MS;
-  if (applied) *applied = radarCalibrationApplied;
-  if (elapsedMs) *elapsedMs = elapsed;
-  if (sampleCount) *sampleCount = radarCalibrationSampleCount;
-  if (moveFactor) *moveFactor = radarCalibrationMoveFactor;
-  if (stillFactor) *stillFactor = radarCalibrationStillFactor;
-  if (peaks) {
-    const size_t copyCount = peakCount < 16 ? peakCount : 16;
-    memcpy(peaks, radarCalibrationPeak, copyCount * sizeof(uint16_t));
-  }
-  xSemaphoreGive(radarUartMutex);
-}
-
-void getRadarRangeSettings(uint8_t *minimumGate, uint8_t *maximumGate,
-                           uint8_t *presenceDelay) {
-  if (minimumGate) *minimumGate = radarMinimumGate;
-  if (maximumGate) *maximumGate = radarMaximumGate;
-  if (presenceDelay) *presenceDelay = radarPresenceDelay;
-}
-
-void getRadarGateThresholdSettings(uint16_t *trigger, uint16_t *maintain,
-                                   size_t count) {
-  if (!trigger || !maintain) {
-    return;
-  }
-  const size_t copyCount = count < 16 ? count : 16;
-  if (radarUartMutex != NULL &&
-      xSemaphoreTake(radarUartMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
-    memcpy(trigger, radarTriggerThreshold, copyCount * sizeof(uint16_t));
-    memcpy(maintain, radarMaintainThreshold, copyCount * sizeof(uint16_t));
-    xSemaphoreGive(radarUartMutex);
-  } else {
-    memset(trigger, 0, copyCount * sizeof(uint16_t));
-    memset(maintain, 0, copyCount * sizeof(uint16_t));
-  }
-}
-
 static void pulseBuzzerFor(uint32_t durationMs) {
 #if !BUZZER_PIN_TEST
   remoteLogf("[BUZZER-TEST] pulse suppressed because buzzer pin disabled duration=%ums\n",
@@ -348,9 +260,9 @@ void sendLd2420InitCommands() {
   static const uint8_t enableConfigV2[] = {
       0xFD, 0xFC, 0xFB, 0xFA, 0x04, 0x00, 0xFF,
       0x00, 0x02, 0x00, 0x04, 0x03, 0x02, 0x01};
-  static const uint8_t setEnergyMode[] = {
+  static const uint8_t setSimpleMode[] = {
       0xFD, 0xFC, 0xFB, 0xFA, 0x08, 0x00, 0x12, 0x00, 0x00, 0x00,
-      0x04, 0x00, 0x00, 0x00, 0x04, 0x03, 0x02, 0x01};
+      0x64, 0x00, 0x00, 0x00, 0x04, 0x03, 0x02, 0x01};
   static const uint8_t disableConfig[] = {
       0xFD, 0xFC, 0xFB, 0xFA, 0x02, 0x00, 0xFE,
       0x00, 0x04, 0x03, 0x02, 0x01};
@@ -361,171 +273,9 @@ void sendLd2420InitCommands() {
   sendRadarUartBytes("enable_config_v2", enableConfigV2,
                      sizeof(enableConfigV2));
   delay(120);
-  sendRadarUartBytes("set_energy_mode", setEnergyMode, sizeof(setEnergyMode));
+  sendRadarUartBytes("set_simple_mode", setSimpleMode, sizeof(setSimpleMode));
   delay(120);
   sendRadarUartBytes("disable_config", disableConfig, sizeof(disableConfig));
-}
-
-static void sendLd2420GateThresholds(uint8_t gate, uint16_t moveThreshold,
-                                      uint16_t stillThreshold) {
-  uint8_t command[] = {
-      0xFD, 0xFC, 0xFB, 0xFA, 0x14, 0x00, 0x07, 0x00,
-      (uint8_t)(0x10 + gate), 0x00, 0x00, 0x00, 0x00, 0x00,
-      (uint8_t)(0x20 + gate), 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x04, 0x03, 0x02, 0x01};
-  command[10] = (uint8_t)(moveThreshold & 0xFF);
-  command[11] = (uint8_t)(moveThreshold >> 8);
-  command[16] = (uint8_t)(stillThreshold & 0xFF);
-  command[17] = (uint8_t)(stillThreshold >> 8);
-  sendRadarUartBytes("set_gate_thresholds", command, sizeof(command));
-}
-
-bool applyRadarRangeSettings(uint8_t minimumGate, uint8_t maximumGate,
-                             uint8_t presenceDelay) {
-  if (minimumGate > maximumGate || maximumGate > 15 || presenceDelay > 15) {
-    return false;
-  }
-  static const uint8_t enableConfigV2[] = {
-      0xFD, 0xFC, 0xFB, 0xFA, 0x04, 0x00, 0xFF,
-      0x00, 0x02, 0x00, 0x04, 0x03, 0x02, 0x01};
-  static const uint8_t setEnergyMode[] = {
-      0xFD, 0xFC, 0xFB, 0xFA, 0x08, 0x00, 0x12, 0x00, 0x00, 0x00,
-      0x04, 0x00, 0x00, 0x00, 0x04, 0x03, 0x02, 0x01};
-  static const uint8_t disableConfig[] = {
-      0xFD, 0xFC, 0xFB, 0xFA, 0x02, 0x00, 0xFE,
-      0x00, 0x04, 0x03, 0x02, 0x01};
-  uint8_t command[] = {
-      0xFD, 0xFC, 0xFB, 0xFA, 0x14, 0x00, 0x07, 0x00,
-      0x00, 0x00, minimumGate, 0x00, 0x00, 0x00,
-      0x01, 0x00, maximumGate, 0x00, 0x00, 0x00,
-      0x04, 0x00, presenceDelay, 0x00, 0x00, 0x00,
-      0x04, 0x03, 0x02, 0x01};
-
-  sendRadarUartBytes("enable_config_v2", enableConfigV2,
-                     sizeof(enableConfigV2));
-  delay(120);
-  sendRadarUartBytes("set_range_timeout", command, sizeof(command));
-  delay(120);
-  sendRadarUartBytes("set_energy_mode", setEnergyMode, sizeof(setEnergyMode));
-  delay(120);
-  sendRadarUartBytes("disable_config", disableConfig, sizeof(disableConfig));
-
-  radarMinimumGate = minimumGate;
-  radarMaximumGate = maximumGate;
-  radarPresenceDelay = presenceDelay;
-  radarZoneActive = false;
-  radarZoneLastDetectionMs = 0;
-  settingsPrefs.putUChar("radar_min", minimumGate);
-  settingsPrefs.putUChar("radar_max", maximumGate);
-  settingsPrefs.putUChar("radar_delay", presenceDelay);
-  remoteLogf("[RADAR CFG] min_gate=%u max_gate=%u delay=%u\n", minimumGate,
-             maximumGate, presenceDelay);
-  return true;
-}
-
-bool applyRadarGateThresholdSettings(uint8_t gate, uint16_t trigger,
-                                     uint16_t maintain) {
-  if (gate > 15 || radarCalibrationActive) {
-    return false;
-  }
-  static const uint8_t enableConfigV2[] = {
-      0xFD, 0xFC, 0xFB, 0xFA, 0x04, 0x00, 0xFF,
-      0x00, 0x02, 0x00, 0x04, 0x03, 0x02, 0x01};
-  static const uint8_t setEnergyMode[] = {
-      0xFD, 0xFC, 0xFB, 0xFA, 0x08, 0x00, 0x12, 0x00, 0x00, 0x00,
-      0x04, 0x00, 0x00, 0x00, 0x04, 0x03, 0x02, 0x01};
-  static const uint8_t disableConfig[] = {
-      0xFD, 0xFC, 0xFB, 0xFA, 0x02, 0x00, 0xFE,
-      0x00, 0x04, 0x03, 0x02, 0x01};
-  sendRadarUartBytes("enable_config_v2", enableConfigV2,
-                     sizeof(enableConfigV2));
-  delay(120);
-  sendLd2420GateThresholds(gate, trigger, maintain);
-  delay(120);
-  sendRadarUartBytes("set_energy_mode", setEnergyMode, sizeof(setEnergyMode));
-  delay(120);
-  sendRadarUartBytes("disable_config", disableConfig, sizeof(disableConfig));
-  if (radarUartMutex != NULL &&
-      xSemaphoreTake(radarUartMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
-    radarTriggerThreshold[gate] = trigger;
-    radarMaintainThreshold[gate] = maintain;
-    xSemaphoreGive(radarUartMutex);
-  }
-  settingsPrefs.putBytes("radar_trigger", radarTriggerThreshold,
-                         sizeof(radarTriggerThreshold));
-  settingsPrefs.putBytes("radar_maintain", radarMaintainThreshold,
-                         sizeof(radarMaintainThreshold));
-  remoteLogf("[RADAR CFG] gate=%u trigger=%u maintain=%u\n", gate, trigger,
-             maintain);
-  return true;
-}
-
-bool applyRadarCalibration() {
-  uint16_t peaks[16];
-  float moveFactor = 0.0f;
-  float stillFactor = 0.0f;
-  if (radarUartMutex == NULL ||
-      xSemaphoreTake(radarUartMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
-    return false;
-  }
-  const bool ready = radarCalibrationActive &&
-      millis() - radarCalibrationStartedAtMs >= RADAR_CALIBRATION_DURATION_MS &&
-      radarCalibrationSampleCount > 0;
-  if (!ready) {
-    xSemaphoreGive(radarUartMutex);
-    return false;
-  }
-  memcpy(peaks, radarCalibrationPeak, sizeof(peaks));
-  moveFactor = radarCalibrationMoveFactor;
-  stillFactor = radarCalibrationStillFactor;
-  radarCalibrationActive = false;
-  xSemaphoreGive(radarUartMutex);
-
-  static const uint8_t enableConfigV2[] = {
-      0xFD, 0xFC, 0xFB, 0xFA, 0x04, 0x00, 0xFF,
-      0x00, 0x02, 0x00, 0x04, 0x03, 0x02, 0x01};
-  static const uint8_t setEnergyMode[] = {
-      0xFD, 0xFC, 0xFB, 0xFA, 0x08, 0x00, 0x12, 0x00, 0x00, 0x00,
-      0x04, 0x00, 0x00, 0x00, 0x04, 0x03, 0x02, 0x01};
-  static const uint8_t disableConfig[] = {
-      0xFD, 0xFC, 0xFB, 0xFA, 0x02, 0x00, 0xFE,
-      0x00, 0x04, 0x03, 0x02, 0x01};
-
-  sendRadarUartBytes("enable_config_v2", enableConfigV2,
-                     sizeof(enableConfigV2));
-  delay(120);
-  for (uint8_t gate = 0; gate < 16; gate++) {
-    const uint32_t moveValue = (uint32_t)(peaks[gate] * (2.0f + moveFactor));
-    const uint32_t stillValue =
-        (uint32_t)(peaks[gate] * (2.0f + stillFactor * 0.5f));
-    const uint16_t moveThreshold =
-        (uint16_t)(moveValue > 65535 ? 65535 : moveValue);
-    const uint16_t stillThreshold =
-        (uint16_t)(stillValue > 65535 ? 65535 : stillValue);
-    sendLd2420GateThresholds(gate, moveThreshold, stillThreshold);
-    if (radarUartMutex != NULL &&
-        xSemaphoreTake(radarUartMutex, pdMS_TO_TICKS(20)) == pdTRUE) {
-      radarTriggerThreshold[gate] = moveThreshold;
-      radarMaintainThreshold[gate] = stillThreshold;
-      xSemaphoreGive(radarUartMutex);
-    }
-    delay(20);
-  }
-  sendRadarUartBytes("set_energy_mode", setEnergyMode, sizeof(setEnergyMode));
-  delay(120);
-  sendRadarUartBytes("disable_config", disableConfig, sizeof(disableConfig));
-
-  if (radarUartMutex != NULL &&
-      xSemaphoreTake(radarUartMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-    radarCalibrationApplied = true;
-    xSemaphoreGive(radarUartMutex);
-  }
-  settingsPrefs.putBytes("radar_trigger", radarTriggerThreshold,
-                         sizeof(radarTriggerThreshold));
-  settingsPrefs.putBytes("radar_maintain", radarMaintainThreshold,
-                         sizeof(radarMaintainThreshold));
-  remoteLogln("[RADAR CAL] thresholds written and stored");
-  return true;
 }
 
 static bool isLd2420EnergyFrame(const uint8_t *frame, size_t len) {
@@ -543,61 +293,14 @@ static void parseLd2420EnergyFrame(const uint8_t *frame, uint32_t nowMs) {
     gates[i] = (uint16_t)frame[offset] | ((uint16_t)frame[offset + 1] << 8);
   }
 
-  bool zoneHit = false;
-  uint8_t strongestGate = radarMinimumGate;
-  uint16_t strongestEnergy = 0;
   if (radarUartMutex != NULL &&
       xSemaphoreTake(radarUartMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
     memcpy(radarGateEnergy, gates, sizeof(radarGateEnergy));
-    const uint8_t firstGate = radarMinimumGate > 15 ? 15 : radarMinimumGate;
-    const uint8_t lastGate = radarMaximumGate > 15 ? 15 : radarMaximumGate;
-    for (int gate = firstGate; gate <= lastGate; gate++) {
-      const uint16_t threshold = radarZoneActive
-          ? radarMaintainThreshold[gate]
-          : radarTriggerThreshold[gate];
-      if (gates[gate] > strongestEnergy) {
-        strongestEnergy = gates[gate];
-        strongestGate = gate;
-      }
-      // Zero means that a threshold is not configured, never "always active".
-      if (threshold > 0 && gates[gate] >= threshold) {
-        zoneHit = true;
-      }
-    }
-    if (radarCalibrationActive) {
-      for (size_t i = 0; i < 16; i++) {
-        if (gates[i] > radarCalibrationPeak[i]) {
-          radarCalibrationPeak[i] = gates[i];
-        }
-      }
-      radarCalibrationSampleCount++;
-    }
     xSemaphoreGive(radarUartMutex);
   }
 
-  if (zoneHit) {
-    radarZoneActive = true;
-    radarZoneLastDetectionMs = nowMs;
-  } else if (radarZoneActive) {
-    const uint32_t holdMs = (uint32_t)radarPresenceDelay * 1000U;
-    if (holdMs == 0 || nowMs - radarZoneLastDetectionMs > holdMs) {
-      radarZoneActive = false;
-    }
-  }
-
-  radarEnergyPresent = radarZoneActive;
-  if (radarZoneActive) {
-    const uint16_t sensorDistance =
-        (uint16_t)frame[7] | ((uint16_t)frame[8] << 8);
-    const uint16_t minDistanceCm = (uint16_t)radarMinimumGate * 70U;
-    const uint16_t maxDistanceCm = ((uint16_t)radarMaximumGate + 1U) * 70U;
-    radarEnergyDistanceCm =
-        sensorDistance >= minDistanceCm && sensorDistance <= maxDistanceCm
-            ? sensorDistance
-            : (uint16_t)strongestGate * 70U;
-  } else {
-    radarEnergyDistanceCm = 0;
-  }
+  radarEnergyPresent = frame[6] != 0;
+  radarEnergyDistanceCm = (uint16_t)frame[7] | ((uint16_t)frame[8] << 8);
   radarUartRange = radarEnergyDistanceCm;
   radarUartPresent = radarEnergyPresent;
   radarEnergyFrameCount++;
@@ -763,15 +466,6 @@ void readAlarmSensors() {
 #endif
   bool daylightNow = lightNow >= LIGHT_DAY_THRESHOLD;
   uint32_t nowMs = millis();
-
-#if RADAR_UART_TEST
-  // Fresh energy frames are authoritative. This makes the configured
-  // distance gates and their thresholds control the real alarm state.
-  if (radarEnergyFrameCount > 0 && radarUartLastRxMs > 0 &&
-      nowMs - radarUartLastRxMs < 1500) {
-    radarNow = radarEnergyPresent;
-  }
-#endif
 
   sensorLastReadMs = nowMs;
   lightRaw = lightNow;
@@ -951,40 +645,6 @@ static bool hasWifiSsid(const char *networkSsid) {
   return networkSsid != NULL && strlen(networkSsid) > 0;
 }
 
-static void configureWifiStationRadio() {
-  WiFi.mode(WIFI_STA);
-  WiFi.setHostname("esp32s3-EED1C8");
-  WiFi.setSleep(false);
-  WiFi.setAutoReconnect(false);
-  WiFi.persistent(false);
-  // MJPEG is uplink-heavy. Use the permitted maximum transmit power so ACKs
-  // and stream data have the best possible link budget. This does not replace
-  // good AP coverage, but avoids artificially limiting the camera radio.
-  WiFi.setTxPower(WIFI_POWER_19_5dBm);
-  wifi_country_t wifiCountry = {
-      .cc = "DE",
-      .schan = 1,
-      .nchan = 13,
-      .policy = WIFI_COUNTRY_POLICY_AUTO,
-  };
-  esp_wifi_set_country(&wifiCountry);
-  // Keep the station on a 20 MHz channel.  At the measured weak link this
-  // is more tolerant of interference and needs less SNR than a 40 MHz link.
-  const esp_err_t bandwidthResult = esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);
-  remoteLogf("[WIFI] STA bandwidth=HT20 result=%d\n", (int)bandwidthResult);
-  esp_wifi_set_ps(WIFI_PS_NONE);
-}
-
-static void resetWifiRadioForReconnect(const char *label) {
-  remoteLogf("[WIFI] radio reset before profile=%s\n", label);
-  WiFi.disconnect(false, false);
-  delay(300);
-  WiFi.mode(WIFI_OFF);
-  delay(900);
-  configureWifiStationRadio();
-  delay(200);
-}
-
 static bool connectToWifiNetwork(const char *label, const char *networkSsid,
                                  const char *networkPassword,
                                  uint32_t timeoutMs) {
@@ -996,7 +656,26 @@ static bool connectToWifiNetwork(const char *label, const char *networkSsid,
 
   remoteLogf("[WIFI] profile=%s start ssid=\"%s\" timeout=%lums\n", label,
              networkSsid, (unsigned long)timeoutMs);
-  resetWifiRadioForReconnect(label);
+  if (isAndroidHotspot) {
+    WiFi.mode(WIFI_STA);
+    delay(100);
+  } else {
+    WiFi.disconnect(false, false);
+    delay(400);
+    WiFi.mode(WIFI_OFF);
+    delay(400);
+  }
+  WiFi.mode(WIFI_STA);
+  WiFi.setHostname("esp32s3-EED1C8");
+  WiFi.setSleep(false);
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);
+  wifi_country_t wifiCountry = {
+      .cc = "DE",
+      .schan = 1,
+      .nchan = 13,
+      .policy = WIFI_COUNTRY_POLICY_AUTO,
+  };
+  esp_wifi_set_country(&wifiCountry);
 
   bool targetFound = false;
   int targetChannel = 0;
@@ -1060,78 +739,50 @@ static bool connectToWifiNetwork(const char *label, const char *networkSsid,
     WiFi.scanDelete();
   }
 
+  if (isAndroidHotspot && hasWifiSsid(demoStaticIp) &&
+      hasWifiSsid(demoGatewayIp)) {
+    IPAddress localIp;
+    IPAddress gatewayIp;
+    IPAddress subnetMask;
+    if (localIp.fromString(demoStaticIp) && gatewayIp.fromString(demoGatewayIp) &&
+        subnetMask.fromString(demoSubnetMask)) {
+      WiFi.config(localIp, gatewayIp, subnetMask, gatewayIp);
+      remoteLogf("[WIFI] static demo ip=%s gateway=%s subnet=%s\n",
+                 demoStaticIp, demoGatewayIp, demoSubnetMask);
+    } else {
+      remoteLogln("[WIFI] invalid static demo IP config, using DHCP");
+    }
+  } else {
+    WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE);
+    remoteLogf("[WIFI] profile=%s using DHCP\n", label);
+  }
+  if (targetFound && targetChannel > 0) {
+    remoteLogf("[WIFI] profile=%s begin pinned bssid channel=%d\n", label,
+               targetChannel);
+    WiFi.begin(networkSsid, networkPassword, targetChannel, targetBssid);
+  } else {
+    remoteLogf("[WIFI] profile=%s begin without pinned BSSID\n", label);
+    WiFi.begin(networkSsid, networkPassword);
+  }
+
   uint32_t startMs = millis();
-  uint8_t attempt = 0;
+  uint32_t lastProgressMs = startMs;
   while (WiFi.status() != WL_CONNECTED && millis() - startMs < timeoutMs) {
-    attempt++;
-    if (attempt > 1) {
-      resetWifiRadioForReconnect(label);
-    }
-
-    if (isAndroidHotspot && hasWifiSsid(demoStaticIp) &&
-        hasWifiSsid(demoGatewayIp)) {
-      IPAddress localIp;
-      IPAddress gatewayIp;
-      IPAddress subnetMask;
-      if (localIp.fromString(demoStaticIp) &&
-          gatewayIp.fromString(demoGatewayIp) &&
-          subnetMask.fromString(demoSubnetMask)) {
-        WiFi.config(localIp, gatewayIp, subnetMask, gatewayIp);
-        remoteLogf("[WIFI] static demo ip=%s gateway=%s subnet=%s\n",
-                   demoStaticIp, demoGatewayIp, demoSubnetMask);
-      } else {
-        remoteLogln("[WIFI] invalid static demo IP config, using DHCP");
-      }
+    delay(500);
+    uint32_t nowMs = millis();
+    if (nowMs - lastProgressMs >= 2500) {
+      lastProgressMs = nowMs;
+      remoteLogf("[WIFI] profile=%s waiting status=%d elapsed=%lums\n", label,
+                 WiFi.status(), (unsigned long)(nowMs - startMs));
     } else {
-      WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE);
-      remoteLogf("[WIFI] profile=%s using DHCP\n", label);
-    }
-
-    // Android can rotate or briefly withdraw its advertised BSSID while the
-    // hotspot is active. Let the ESP32 select the current BSSID/channel for
-    // this network instead of retrying a stale scan result.
-    bool usePinnedBssid = !isAndroidHotspot && targetFound && targetChannel > 0;
-    if (usePinnedBssid) {
-      remoteLogf("[WIFI] profile=%s attempt=%u begin pinned bssid channel=%d\n",
-                 label, attempt, targetChannel);
-      WiFi.begin(networkSsid, networkPassword, targetChannel, targetBssid);
-    } else {
-      remoteLogf("[WIFI] profile=%s attempt=%u begin without pinned BSSID\n",
-                 label, attempt);
-      WiFi.begin(networkSsid, networkPassword);
-    }
-
-    uint32_t attemptStartMs = millis();
-    uint32_t lastProgressMs = attemptStartMs;
-    while (WiFi.status() != WL_CONNECTED &&
-           millis() - attemptStartMs < 15000 &&
-           millis() - startMs < timeoutMs) {
-      delay(500);
-      uint32_t nowMs = millis();
-      if (nowMs - lastProgressMs >= 2500) {
-        lastProgressMs = nowMs;
-        remoteLogf("[WIFI] profile=%s attempt=%u waiting status=%d elapsed=%lums total=%lums\n",
-                   label, attempt, WiFi.status(),
-                   (unsigned long)(nowMs - attemptStartMs),
-                   (unsigned long)(nowMs - startMs));
-      } else {
-        Serial.print(".");
-      }
-    }
-    Serial.println();
-
-    if (WiFi.status() != WL_CONNECTED && millis() - startMs < timeoutMs) {
-      remoteLogf("[WIFI] profile=%s attempt=%u stuck status=%d, restarting radio\n",
-                 label, attempt, WiFi.status());
+      Serial.print(".");
     }
   }
+  Serial.println();
 
   if (WiFi.status() == WL_CONNECTED) {
     strncpy(lastConnectedWifiProfile, label, sizeof(lastConnectedWifiProfile));
     lastConnectedWifiProfile[sizeof(lastConnectedWifiProfile) - 1] = '\0';
-    wifiReconnectBackoffMs = 10000;
-    nextWifiReconnectAttemptMs = 0;
-    lastWifiReconnectAttemptMs = 0;
     remoteLogf("[WIFI] connected profile=%s ssid=\"%s\" ip=%s rssi=%d\n",
                label, WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(),
                WiFi.RSSI());
@@ -1143,62 +794,26 @@ static bool connectToWifiNetwork(const char *label, const char *networkSsid,
   return false;
 }
 
-static bool connectToConfiguredWifi(uint32_t managerTimeoutMs = 0) {
+static void connectToConfiguredWifi() {
   remoteLogf("[WIFI] connect manager start normal_configured=%u hotspot_configured=%u demo_only=%u\n",
              hasWifiSsid(ssid) ? 1 : 0, hasWifiSsid(demoSsid) ? 1 : 0,
              demoWifiOnly ? 1 : 0);
-  configureWifiStationRadio();
+  WiFi.mode(WIFI_STA);
+  WiFi.setHostname("esp32s3-EED1C8");
+  WiFi.setSleep(false); // Wichtig fuer stabilen Stream
+  WiFi.persistent(false);
+  WiFi.setAutoReconnect(true);
 
-  uint32_t managerStartMs = millis();
   while (WiFi.status() != WL_CONNECTED) {
-    if (managerTimeoutMs > 0 && millis() - managerStartMs >= managerTimeoutMs) {
-      remoteLogf("[WIFI] connect manager timeout elapsed=%lums status=%d\n",
-                 (unsigned long)(millis() - managerStartMs), WiFi.status());
-      return false;
-    }
-
     bool demoIsDifferent =
         hasWifiSsid(demoSsid) && (!hasWifiSsid(ssid) || strcmp(demoSsid, ssid) != 0);
-
-    if (strcmp(preferredWifiProfile, "normal") == 0) {
-      // A manually selected router must not strand the camera when its signal
-      // disappears. Try it briefly, then fail over to the known phone hotspot
-      // and remember that working profile for subsequent reconnects.
-      remoteLogln("[WIFI] preferred normal_wifi with hotspot failover");
-      if (connectToWifiNetwork("normal_wifi", ssid, password, 12000)) {
-        return true;
-      }
-      if (demoIsDifferent &&
-          connectToWifiNetwork("android_hotspot", demoSsid, demoPassword,
-                               30000)) {
-        strncpy(preferredWifiProfile, "hotspot", sizeof(preferredWifiProfile));
-        preferredWifiProfile[sizeof(preferredWifiProfile) - 1] = '\0';
-        settingsPrefs.putString("wifi_profile", preferredWifiProfile);
-        remoteLogln("[WIFI] normal_wifi unavailable; hotspot failover persisted");
-        return true;
-      }
-      remoteLogln("[WIFI] normal_wifi and hotspot unavailable, retrying...");
-      delay(2000);
-      continue;
-    }
-
-    if (strcmp(preferredWifiProfile, "hotspot") == 0) {
-      remoteLogln("[WIFI] preferred android_hotspot only");
-      if (connectToWifiNetwork("android_hotspot", demoSsid, demoPassword,
-                               90000)) {
-        return true;
-      }
-      remoteLogln("[WIFI] preferred android_hotspot unavailable, retrying...");
-      delay(2000);
-      continue;
-    }
 
     if (demoWifiOnly) {
       remoteLogln("[WIFI] demoWifiOnly enabled; trying android_hotspot only");
       if (connectToWifiNetwork("android_hotspot", demoSsid, demoPassword,
                                90000)) {
         remoteLogln("[WIFI] android_hotspot connected");
-        return true;
+        return;
       }
       remoteLogln("[WIFI] android_hotspot failed, retrying...");
       delay(2000);
@@ -1213,7 +828,7 @@ static bool connectToConfiguredWifi(uint32_t managerTimeoutMs = 0) {
       if (connectToWifiNetwork("android_hotspot", demoSsid, demoPassword,
                                30000)) {
         remoteLogln("[WIFI] android_hotspot connected");
-        return true;
+        return;
       }
       remoteLogln("[WIFI] previous android_hotspot failed, trying normal_wifi");
     }
@@ -1221,7 +836,7 @@ static bool connectToConfiguredWifi(uint32_t managerTimeoutMs = 0) {
     remoteLogln("[WIFI] trying normal_wifi");
     if (connectToWifiNetwork("normal_wifi", ssid, password, 30000)) {
       remoteLogln("[WIFI] normal_wifi connected");
-      return true;
+      return;
     }
 
     if (!demoIsDifferent) {
@@ -1231,150 +846,13 @@ static bool connectToConfiguredWifi(uint32_t managerTimeoutMs = 0) {
       if (connectToWifiNetwork("android_hotspot", demoSsid, demoPassword,
                                30000)) {
         remoteLogln("[WIFI] android_hotspot connected");
-        return true;
+        return;
       }
       remoteLogln("[WIFI] android_hotspot failed");
     }
     remoteLogln("[WIFI] no configured network reachable, retrying...");
     delay(2000);
   }
-  return true;
-}
-
-bool initCameraHardware() {
-#if CAMERA_DISABLED_TEST
-  remoteLogln("[CAMERA-TEST] camera init disabled; HTTP/logs/radar remain active");
-  return false;
-#else
-  struct CameraProbeConfig {
-    const char *name;
-    uint32_t xclk;
-    framesize_t frameSize;
-    camera_grab_mode_t grabMode;
-    camera_fb_location_t fbLocation;
-    uint8_t quality;
-    uint8_t fbCount;
-  };
-
-  const bool hasPsram = psramFound();
-  remoteLogf("[CAMERA] psram=%u free_heap=%u free_psram=%u\n",
-             hasPsram ? 1 : 0, (unsigned int)ESP.getFreeHeap(),
-             (unsigned int)ESP.getPsramSize());
-
-  // VGA provides the best useful detail once the WLAN has enough headroom.
-  // At a weak RSSI it would turn a live stream into a slow sequence of stale
-  // frames, so start directly with QVGA in that case. At <= -85 dBm use
-  // QQVGA to keep the radio queue short rather than producing stale frames.
-  // CAMERA_GRAB_LATEST and two PSRAM buffers deliberately trade dropped
-  // frames for low latency.
-  const int initialRssi = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : -127;
-  // VGA has no useful retry margin when the hotspot fluctuates around
-  // -70 dBm. Reserve it for an actually strong link; QVGA keeps live video
-  // usable through short fades and is selected below that threshold.
-  const bool linkSupportsVga = initialRssi >= -62;
-  const bool linkIsVeryWeak = initialRssi <= -85;
-  const CameraProbeConfig probes[] = {
-      {"psram_vga_20_latest", 20000000, FRAMESIZE_VGA,
-       CAMERA_GRAB_LATEST, CAMERA_FB_IN_PSRAM, 14, 2},
-      {"psram_qqvga_10_latest", 10000000, FRAMESIZE_QQVGA,
-       CAMERA_GRAB_LATEST, CAMERA_FB_IN_PSRAM, 25, 2},
-      {"psram_qvga_15_latest", 15000000, FRAMESIZE_QVGA,
-       CAMERA_GRAB_LATEST, CAMERA_FB_IN_PSRAM, 18, 2},
-      {"psram_qvga_15_empty", 15000000, FRAMESIZE_QVGA,
-       CAMERA_GRAB_WHEN_EMPTY, CAMERA_FB_IN_PSRAM, 18, 1},
-      {"psram_qvga_20_latest", 20000000, FRAMESIZE_QVGA,
-       CAMERA_GRAB_LATEST, CAMERA_FB_IN_PSRAM, 18, 2},
-      {"dram_qqvga_10_empty", 10000000, FRAMESIZE_QQVGA,
-       CAMERA_GRAB_WHEN_EMPTY, CAMERA_FB_IN_DRAM, 20, 1},
-  };
-
-  const size_t firstProbe = linkSupportsVga ? 0 : (linkIsVeryWeak ? 1 : 2);
-  remoteLogf("[CAMERA] link rssi=%d profile=%s\n", initialRssi,
-             linkSupportsVga ? "VGA" : (linkIsVeryWeak ? "QQVGA" : "QVGA"));
-
-  for (size_t i = firstProbe; i < sizeof(probes) / sizeof(probes[0]); i++) {
-    if (probes[i].fbLocation == CAMERA_FB_IN_PSRAM && !hasPsram) {
-      continue;
-    }
-
-    esp_camera_deinit();
-    delay(150);
-
-    camera_config_t config;
-    memset(&config, 0, sizeof(config));
-    config.ledc_channel = LEDC_CHANNEL_0;
-    config.ledc_timer = LEDC_TIMER_0;
-    config.pin_d0 = Y2_GPIO_NUM;
-    config.pin_d1 = Y3_GPIO_NUM;
-    config.pin_d2 = Y4_GPIO_NUM;
-    config.pin_d3 = Y5_GPIO_NUM;
-    config.pin_d4 = Y6_GPIO_NUM;
-    config.pin_d5 = Y7_GPIO_NUM;
-    config.pin_d6 = Y8_GPIO_NUM;
-    config.pin_d7 = Y9_GPIO_NUM;
-    config.pin_xclk = XCLK_GPIO_NUM;
-    config.pin_pclk = PCLK_GPIO_NUM;
-    config.pin_vsync = VSYNC_GPIO_NUM;
-    config.pin_href = HREF_GPIO_NUM;
-    config.pin_sccb_sda = SIOD_GPIO_NUM;
-    config.pin_sccb_scl = SIOC_GPIO_NUM;
-    config.pin_pwdn = PWDN_GPIO_NUM;
-    config.pin_reset = RESET_GPIO_NUM;
-    config.xclk_freq_hz = probes[i].xclk;
-    config.frame_size = probes[i].frameSize;
-    config.pixel_format = PIXFORMAT_JPEG;
-    config.grab_mode = probes[i].grabMode;
-    config.fb_location = probes[i].fbLocation;
-    config.jpeg_quality = probes[i].quality;
-    config.fb_count = probes[i].fbCount;
-
-    remoteLogf("[CAMERA] probe=%s xclk=%lu frame=%u fb_count=%u loc=%u\n",
-               probes[i].name, (unsigned long)probes[i].xclk,
-               (unsigned int)probes[i].frameSize,
-               (unsigned int)probes[i].fbCount,
-               (unsigned int)probes[i].fbLocation);
-
-    esp_err_t err = esp_camera_init(&config);
-    if (err != ESP_OK) {
-      remoteLogf("[CAMERA] probe=%s init failed err=0x%x\n", probes[i].name,
-                 err);
-      continue;
-    }
-
-    sensor_t *s = esp_camera_sensor_get();
-    if (!s) {
-      remoteLogf("[CAMERA] probe=%s sensor missing after init\n",
-                 probes[i].name);
-      continue;
-    }
-    if (s->id.PID == OV3660_PID) {
-      s->set_vflip(s, 0);
-      s->set_hmirror(s, 1);
-      s->set_brightness(s, 1);
-      s->set_saturation(s, -2);
-    }
-
-    remoteLogf("[CAMERA] probe=%s init ok pid=0x%x framesize=%u quality=%u\n",
-               probes[i].name, s->id.PID, s->status.framesize,
-               s->status.quality);
-    for (int attempt = 1; attempt <= 5; attempt++) {
-      delay(150);
-      camera_fb_t *warmup = esp_camera_fb_get();
-      if (warmup) {
-        remoteLogf("[CAMERA] probe=%s frame ok attempt=%d len=%u format=%u\n",
-                   probes[i].name, attempt, (unsigned int)warmup->len,
-                   (unsigned int)warmup->format);
-        esp_camera_fb_return(warmup);
-        return true;
-      }
-      remoteLogf("[CAMERA] probe=%s fb_get failed attempt=%d heap=%u\n",
-                 probes[i].name, attempt, (unsigned int)ESP.getFreeHeap());
-    }
-  }
-
-  remoteLogln("[CAMERA] all probes failed: init works but no frames available");
-  return true;
-#endif
 }
 
 void setup() {
@@ -1383,29 +861,8 @@ void setup() {
   initRemoteLogBuffer();
   Serial.println();
   remoteLogln("[BOOT] ESP32-S3 camera boot");
-  remoteLogf("[BOOT] reset_reason=%d heap=%u\n", esp_reset_reason(),
-             (unsigned int)ESP.getFreeHeap());
   remoteLogln("[BOOT] USB serial log active at 115200 baud");
   settingsPrefs.begin("vision", false);
-  String storedWifiProfile = settingsPrefs.getString("wifi_profile", "auto");
-  if (storedWifiProfile == "normal" || storedWifiProfile == "hotspot" ||
-      storedWifiProfile == "auto") {
-    strncpy(preferredWifiProfile, storedWifiProfile.c_str(),
-            sizeof(preferredWifiProfile));
-    preferredWifiProfile[sizeof(preferredWifiProfile) - 1] = '\0';
-  }
-  remoteLogf("[WIFI] preferred profile=%s\n", preferredWifiProfile);
-  radarMinimumGate = settingsPrefs.getUChar("radar_min", radarMinimumGate);
-  radarMaximumGate = settingsPrefs.getUChar("radar_max", radarMaximumGate);
-  radarPresenceDelay = settingsPrefs.getUChar("radar_delay", radarPresenceDelay);
-  if (settingsPrefs.getBytesLength("radar_trigger") == sizeof(radarTriggerThreshold)) {
-    settingsPrefs.getBytes("radar_trigger", radarTriggerThreshold,
-                           sizeof(radarTriggerThreshold));
-  }
-  if (settingsPrefs.getBytesLength("radar_maintain") == sizeof(radarMaintainThreshold)) {
-    settingsPrefs.getBytes("radar_maintain", radarMaintainThreshold,
-                           sizeof(radarMaintainThreshold));
-  }
   localRadarBuzzerEnabled = settingsPrefs.getBool("radar_buzzer", false);
   remoteLogf("[ALARM] local radar buzzer enabled=%u\n",
              localRadarBuzzerEnabled ? 1 : 0);
@@ -1448,26 +905,17 @@ void setup() {
   return;
 #endif
 
-  bool cameraOk = initCameraHardware();
-
-  // Start HTTP after the camera had a chance to produce its first frame. This
-  // avoids early stream requests racing the camera driver during boot.
+  // Start the HTTP server before peripheral init. Diagnostics such as /logs
+  // stay reachable even if camera or radar setup fails later.
   startCameraServer();
-
-  if (!cameraOk) {
-    return;
-  }
 
 #if RADAR_UART_TEST
   beginRadarUart(RADAR_UART_BAUD);
   sendLd2420InitCommands();
-  applyRadarRangeSettings(radarMinimumGate, radarMaximumGate,
-                          radarPresenceDelay);
 #else
   remoteLogln("[PERIPHERAL-TEST] radar UART disabled");
 #endif
 
-#if 0
 #if CAMERA_DISABLED_TEST
   remoteLogln("[CAMERA-TEST] camera init disabled; HTTP/logs/radar remain active");
   return;
@@ -1495,17 +943,17 @@ void setup() {
   config.xclk_freq_hz = 15000000;
   config.frame_size = FRAMESIZE_QVGA;
   config.pixel_format = PIXFORMAT_JPEG;
-  config.grab_mode = CAMERA_GRAB_LATEST;
+  config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
   config.fb_location = CAMERA_FB_IN_PSRAM;
   config.jpeg_quality = 18;
-  config.fb_count = 2;
+  config.fb_count = 1;
 
   // PSRAM Check (Essentiell für S3-WROOM)
   if (psramFound()) {
     config.jpeg_quality = 18;
-    config.fb_count = 2;
+    config.fb_count = 1;
     config.frame_size = FRAMESIZE_QVGA;
-    config.grab_mode = CAMERA_GRAB_LATEST;
+    config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
     remoteLogln("psramFound");
   } else {
     // Falls kein PSRAM gefunden wurde, Auflösung senken
@@ -1530,7 +978,6 @@ void setup() {
   }
 
   Serial.print("Kamera bereit! Öffne: http://");
-#endif
   Serial.println(WiFi.localIP());
 }
 
@@ -1540,54 +987,27 @@ void loop() {
 
   uint32_t nowMs = millis();
 
-  if (wifiProfileSwitchPending &&
-      (int32_t)(nowMs - wifiProfileSwitchAtMs) >= 0) {
-    wifiProfileSwitchPending = false;
-    remoteLogf("[WIFI] switching to preferred profile=%s\n",
-               preferredWifiProfile);
-    WiFi.disconnect(false, false);
-    wifiDisconnectedSinceMs = nowMs;
-    nextWifiReconnectAttemptMs = nowMs;
-  }
-
   if (WiFi.status() == WL_CONNECTED) {
     wifiDisconnectedSinceMs = 0;
-    nextWifiReconnectAttemptMs = 0;
-    wifiReconnectBackoffMs = 10000;
   } else {
     if (wifiDisconnectedSinceMs == 0) {
       wifiDisconnectedSinceMs = nowMs;
-      nextWifiReconnectAttemptMs = nowMs + 10000;
-      remoteLogln("[WIFI] disconnected in loop, scheduling clean reconnect in 10000ms");
-    }
-    // The disconnect event may set wifiDisconnectedSinceMs before this loop
-    // runs. Always arm a reconnect timer so event ordering cannot leave Wi-Fi
-    // disconnected indefinitely.
-    if (nextWifiReconnectAttemptMs == 0) {
-      nextWifiReconnectAttemptMs = nowMs + 1000;
-      remoteLogln("[WIFI] event disconnect, scheduling clean reconnect in 1000ms");
+      remoteLogln("[WIFI] disconnected in loop, waiting before hard reconnect...");
+      WiFi.reconnect();
     }
     uint32_t disconnectedForMs = nowMs - wifiDisconnectedSinceMs;
-    if (nextWifiReconnectAttemptMs != 0 &&
-        (int32_t)(nowMs - nextWifiReconnectAttemptMs) >= 0) {
+    if (disconnectedForMs >= 20000 &&
+        nowMs - lastWifiReconnectAttemptMs >= 30000) {
       lastWifiReconnectAttemptMs = nowMs;
-      remoteLogf("[WIFI] clean reconnect attempt after %lums disconnected backoff=%lums\n",
-                 (unsigned long)disconnectedForMs,
-                 (unsigned long)wifiReconnectBackoffMs);
-      bool reconnected = connectToConfiguredWifi(120000);
-      if (reconnected && WiFi.status() == WL_CONNECTED) {
-        wifiDisconnectedSinceMs = 0;
-        nextWifiReconnectAttemptMs = 0;
-        wifiReconnectBackoffMs = 10000;
-      } else {
-        uint32_t failedAtMs = millis();
-        wifiDisconnectedSinceMs = failedAtMs;
-        wifiReconnectBackoffMs =
-            wifiReconnectBackoffMs < 60000 ? wifiReconnectBackoffMs * 2 : 60000;
-        nextWifiReconnectAttemptMs = failedAtMs + wifiReconnectBackoffMs;
-        remoteLogf("[WIFI] reconnect failed, next attempt in %lums\n",
-                   (unsigned long)wifiReconnectBackoffMs);
-      }
+      remoteLogf("[WIFI] hard reconnect after %lums disconnected\n",
+                 (unsigned long)disconnectedForMs);
+      connectToConfiguredWifi();
+      wifiDisconnectedSinceMs = WiFi.status() == WL_CONNECTED ? 0 : millis();
+    } else if (nowMs - lastWifiReconnectAttemptMs >= 5000) {
+      lastWifiReconnectAttemptMs = nowMs;
+      remoteLogf("[WIFI] soft reconnect wait disconnected_for=%lums status=%d\n",
+                 (unsigned long)disconnectedForMs, WiFi.status());
+      WiFi.reconnect();
     }
   }
 
@@ -1649,3 +1069,4 @@ void loop() {
 
   delay(5);
 }
+

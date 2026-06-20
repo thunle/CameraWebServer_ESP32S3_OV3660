@@ -1,3 +1,4 @@
+#line 1 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\board_config.h"
 #ifndef BOARD_CONFIG_H
 #define BOARD_CONFIG_H
 
@@ -70,7 +71,7 @@
 #endif
 
 #ifndef RADAR_UART_PASSIVE_TEST
-#define RADAR_UART_PASSIVE_TEST 0
+#define RADAR_UART_PASSIVE_TEST 1
 #endif
 
 #ifndef WIFI_DEBUG_ONLY
@@ -90,11 +91,11 @@
 #endif
 
 #ifndef BUZZER_PIN_TEST
-#define BUZZER_PIN_TEST 1
+#define BUZZER_PIN_TEST 0
 #endif
 
 #ifndef RADAR_PIN_TEST
-#define RADAR_PIN_TEST 1
+#define RADAR_PIN_TEST 0
 #endif
 
 #ifndef LIGHT_SENSOR_PIN_TEST
@@ -102,7 +103,7 @@
 #endif
 
 #ifndef RADAR_UART_TEST
-#define RADAR_UART_TEST 1
+#define RADAR_UART_TEST 0
 #endif
 
 #ifndef LIGHT_DAY_THRESHOLD

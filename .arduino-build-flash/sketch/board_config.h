@@ -1,3 +1,4 @@
+#line 1 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\board_config.h"
 #ifndef BOARD_CONFIG_H
 #define BOARD_CONFIG_H
 
@@ -35,7 +36,7 @@
 // Alarm hardware
 // ===================
 #ifndef BUZZER_PIN
-#define BUZZER_PIN 14
+#define BUZZER_PIN 2
 #endif
 
 #ifndef BUZZER_ACTIVE_HIGH
@@ -46,7 +47,7 @@
 #define BUZZER_OFF_LEVEL (BUZZER_ACTIVE_HIGH ? LOW : HIGH)
 
 #ifndef RADAR_PIN
-#define RADAR_PIN 2
+#define RADAR_PIN 3
 #endif
 
 #ifndef LIGHT_SENSOR_PIN
@@ -62,63 +63,15 @@
 #endif
 
 #ifndef RADAR_UART_TX_PIN
-#define RADAR_UART_TX_PIN 42
+#define RADAR_UART_TX_PIN 40
 #endif
 
 #ifndef RADAR_UART_BAUD
 #define RADAR_UART_BAUD 115200
 #endif
 
-#ifndef RADAR_UART_PASSIVE_TEST
-#define RADAR_UART_PASSIVE_TEST 0
-#endif
-
-#ifndef WIFI_DEBUG_ONLY
-#define WIFI_DEBUG_ONLY 0
-#endif
-
-#ifndef CAMERA_DISABLED_TEST
-#define CAMERA_DISABLED_TEST 0
-#endif
-
-#ifndef PERIPHERAL_DISABLED_TEST
-#define PERIPHERAL_DISABLED_TEST 0
-#endif
-
-#ifndef SIMPLE_HTTP_TEST
-#define SIMPLE_HTTP_TEST 0
-#endif
-
-#ifndef BUZZER_PIN_TEST
-#define BUZZER_PIN_TEST 1
-#endif
-
-#ifndef RADAR_PIN_TEST
-#define RADAR_PIN_TEST 1
-#endif
-
-#ifndef LIGHT_SENSOR_PIN_TEST
-#define LIGHT_SENSOR_PIN_TEST 1
-#endif
-
-#ifndef RADAR_UART_TEST
-#define RADAR_UART_TEST 1
-#endif
-
 #ifndef LIGHT_DAY_THRESHOLD
 #define LIGHT_DAY_THRESHOLD 100
-#endif
-
-#ifndef SENSOR_READ_INTERVAL_MS
-#define SENSOR_READ_INTERVAL_MS 250
-#endif
-
-#ifndef RADAR_UART_READ_INTERVAL_MS
-#define RADAR_UART_READ_INTERVAL_MS 50
-#endif
-
-#ifndef RADAR_UART_LOG_INTERVAL_MS
-#define RADAR_UART_LOG_INTERVAL_MS 2000
 #endif
 
 #ifndef DARK_RADAR_ALARM_ENABLED

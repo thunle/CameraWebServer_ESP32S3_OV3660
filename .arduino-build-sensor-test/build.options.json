@@ -1,0 +1,9 @@
+{
+  "additionalFiles": "..\\..\\..,..\\..\\..\\..\\..\\..\\..\\..\\..,..\\..\\..\\..\\..\\..\\..\\..\\..,..\\..\\..\\..\\..\\..\\..\\..\\..,..\\..\\..\\..\\..\\..\\..\\..\\..,..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\..,..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\..,..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\..,..\\..\\..\\..\\..\\..\\..\\..\\..,..\\..\\..\\..\\..\\..\\..\\..\\..,..\\..\\..\\..\\..\\..\\..\\..\\..,..\\..\\..\\..\\..\\..\\..\\..,..\\..,..\\..,..\\..,..\\..,..\\..,..\\..,..\\..\\..,..\\..\\..,..\\..\\..",
+  "compiler.optimization_flags": "-Os",
+  "customBuildProperties": "",
+  "fqbn": "esp32:esp32:esp32s3:PSRAM=opi,USBMode=default,PartitionScheme=custom,FlashMode=qio",
+  "hardwareFolders": "C:\\Users\\Julius\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7,C:\\Users\\Julius\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7",
+  "otherLibrariesFolders": "C:\\Users\\Julius\\Documents\\Arduino\\libraries",
+  "sketchLocation": "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660"
+}

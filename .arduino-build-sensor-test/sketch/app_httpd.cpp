@@ -1,3 +1,4 @@
+#line 1 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\app_httpd.cpp"
 // Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
 #include "Arduino.h"
 #include "board_config.h"
@@ -46,19 +47,10 @@ static const char *_STREAM_PART =
 httpd_handle_t stream_httpd = NULL;
 httpd_handle_t camera_httpd = NULL;
 static volatile bool streamClientActive = false;
-static volatile uint32_t streamRestartCount = 0;
-
-static void startStreamServer();
 
 static void set_close_headers(httpd_req_t *req) {
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_hdr(req, "Connection", "close");
-}
-
-static void set_stream_headers(httpd_req_t *req) {
-  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-  httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate");
-  httpd_resp_set_hdr(req, "Pragma", "no-cache");
 }
 
 extern volatile uint32_t wifiDisconnectCount;
@@ -90,24 +82,6 @@ extern String getRemoteLogSnapshot(bool clearAfterRead);
 extern String getRadarUartLastHexSnapshot();
 extern String getRadarUartLastTextSnapshot();
 extern void getRadarGateEnergySnapshot(uint16_t *out, size_t count);
-extern bool startRadarCalibration(float moveFactor, float stillFactor);
-extern bool cancelRadarCalibration();
-extern bool applyRadarCalibration();
-extern bool applyRadarRangeSettings(uint8_t minimumGate, uint8_t maximumGate,
-                                    uint8_t presenceDelay);
-extern bool applyRadarGateThresholdSettings(uint8_t gate, uint16_t trigger,
-                                            uint16_t maintain);
-extern void getRadarCalibrationStatus(bool *active, bool *ready, bool *applied,
-                                      uint32_t *elapsedMs, uint32_t *sampleCount,
-                                      float *moveFactor, float *stillFactor,
-                                      uint16_t *peaks, size_t peakCount);
-extern void getRadarRangeSettings(uint8_t *minimumGate, uint8_t *maximumGate,
-                                  uint8_t *presenceDelay);
-extern void getRadarGateThresholdSettings(uint16_t *trigger, uint16_t *maintain,
-                                          size_t count);
-extern bool requestPreferredWifiProfile(const char *profile);
-extern const char *getPreferredWifiProfile();
-extern bool initCameraHardware();
 
 typedef struct {
   size_t size;
@@ -195,20 +169,9 @@ static esp_err_t capture_handler(httpd_req_t *req) {
   fb = esp_camera_fb_get();
   enable_led(false);
 #else
-  // A camera frame can be in flight just after boot or while a stream client
-  // releases its buffer. A short retry avoids surfacing that as HTTP 500.
-  for (uint8_t attempt = 0; attempt < 3 && !fb; attempt++) {
-    fb = esp_camera_fb_get();
-    if (!fb) {
-      vTaskDelay(pdMS_TO_TICKS(20));
-    }
-  }
+  fb = esp_camera_fb_get();
 #endif
   if (!fb) {
-    remoteLogf("[CAPTURE] fb_get failed heap=%u psram=%u stream_active=%u\n",
-               (unsigned int)ESP.getFreeHeap(),
-               (unsigned int)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
-               streamClientActive ? 1 : 0);
     httpd_resp_send_500(req);
     return ESP_FAIL;
   }
@@ -236,7 +199,6 @@ static esp_err_t stream_handler(httpd_req_t *req) {
     return httpd_resp_sendstr(req, "stream already active");
   }
   streamClientActive = true;
-  remoteLogln("[STREAM] client connected");
 
   camera_fb_t *fb = NULL;
   struct timeval _timestamp;
@@ -259,10 +221,7 @@ static esp_err_t stream_handler(httpd_req_t *req) {
     return res;
   }
 
-  // This response remains open for the lifetime of the MJPEG stream. Do not
-  // advertise Connection: close here; some clients treat it as a short-lived
-  // response and reconnect unnecessarily.
-  set_stream_headers(req);
+  set_close_headers(req);
 
 #if defined(LED_GPIO_NUM)
   isStreaming = true;
@@ -285,26 +244,20 @@ static esp_err_t stream_handler(httpd_req_t *req) {
     fb_get_ms = (uint32_t)((esp_timer_get_time() - fb_start) / 1000);
     if (!fb) {
       fb_fail_count++;
-      remoteLogf("[STREAM] fb_get failed count=%lu ms=%u heap=%u psram=%u\n",
-                 (unsigned long)fb_fail_count, (unsigned int)fb_get_ms,
-                 (unsigned int)ESP.getFreeHeap(),
-                 (unsigned int)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
       res = ESP_FAIL;
-  } else {
-    _timestamp.tv_sec = fb->timestamp.tv_sec;
-    _timestamp.tv_usec = fb->timestamp.tv_usec;
-    if (fb->format != PIXFORMAT_JPEG) {
+    } else {
+      _timestamp.tv_sec = fb->timestamp.tv_sec;
+      _timestamp.tv_usec = fb->timestamp.tv_usec;
+      if (fb->format != PIXFORMAT_JPEG) {
         bool jpeg_converted = frame2jpg(fb, 80, &_jpg_buf, &_jpg_buf_len);
         esp_camera_fb_return(fb);
         fb = NULL;
-      if (!jpeg_converted)
-        res = ESP_FAIL;
-    } else {
-      _jpg_buf_len = fb->len;
-      // JPEG frames already live in PSRAM. Keep this buffer until the HTTP
-      // chunks are sent; copying it per frame costs both FPS and heap churn.
-      _jpg_buf = fb->buf;
-    }
+        if (!jpeg_converted)
+          res = ESP_FAIL;
+      } else {
+        _jpg_buf_len = fb->len;
+        _jpg_buf = fb->buf;
+      }
     }
 
     int64_t send_start = esp_timer_get_time();
@@ -331,7 +284,6 @@ static esp_err_t stream_handler(httpd_req_t *req) {
       fb = NULL;
       _jpg_buf = NULL;
     } else if (_jpg_buf) {
-      // frame2jpg() allocated this only for a non-JPEG camera format.
       free(_jpg_buf);
       _jpg_buf = NULL;
     }
@@ -375,8 +327,7 @@ static esp_err_t stream_handler(httpd_req_t *req) {
           (uint32_t)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     }
 
-    // Yield to Wi-Fi and the camera driver without imposing an 8 FPS cap.
-    vTaskDelay(pdMS_TO_TICKS(10));
+    vTaskDelay(pdMS_TO_TICKS(120));
   }
 
 #if defined(LED_GPIO_NUM)
@@ -386,9 +337,6 @@ static esp_err_t stream_handler(httpd_req_t *req) {
   last_frame = 0;
   last_log = 0;
   streamClientActive = false;
-  remoteLogf("[STREAM] client disconnected res=%d send_fail=%lu fb_fail=%lu\n",
-             (int)res, (unsigned long)send_fail_count,
-             (unsigned long)fb_fail_count);
   return res;
 }
 
@@ -483,8 +431,6 @@ static esp_err_t status_handler(httpd_req_t *req) {
   p += sprintf(p, "\"wifi_ip\":\"%s\",", localIp.c_str());
   p += sprintf(p, "\"wifi_gateway\":\"%s\",", gatewayIp.c_str());
   p += sprintf(p, "\"wifi_rssi\":%d,", WiFi.RSSI());
-  p += sprintf(p, "\"stream_active\":%s,", streamClientActive ? "true" : "false");
-  p += sprintf(p, "\"stream_restarts\":%lu,", (unsigned long)streamRestartCount);
   p += sprintf(p, "\"camera_ready\":%s,", s ? "true" : "false");
   if (!s) {
     p += sprintf(p, "\"xclk\":0,");
@@ -528,7 +474,7 @@ static esp_err_t sensors_handler(httpd_req_t *req) {
   uint32_t now = millis();
 
 #if !(RADAR_PIN_TEST || LIGHT_SENSOR_PIN_TEST || RADAR_UART_TEST || BUZZER_PIN_TEST)
-  static char response[640];
+  char response[640];
   int response_len = snprintf(
       response, sizeof(response),
       "{\"radar_active\":false,\"daylight\":false,\"light_raw\":0,"
@@ -564,29 +510,8 @@ static esp_err_t sensors_handler(httpd_req_t *req) {
   String radar_uart_text = getRadarUartLastTextSnapshot();
   uint16_t gate_energy[16];
   getRadarGateEnergySnapshot(gate_energy, 16);
-  bool calibration_active = false;
-  bool calibration_ready = false;
-  bool calibration_applied = false;
-  uint32_t calibration_elapsed_ms = 0;
-  uint32_t calibration_samples = 0;
-  float calibration_move_factor = 0.0f;
-  float calibration_still_factor = 0.0f;
-  uint16_t calibration_peaks[16];
-  getRadarCalibrationStatus(
-      &calibration_active, &calibration_ready, &calibration_applied,
-      &calibration_elapsed_ms, &calibration_samples, &calibration_move_factor,
-      &calibration_still_factor, calibration_peaks, 16);
-  uint8_t radar_minimum_gate = 0;
-  uint8_t radar_maximum_gate = 15;
-  uint8_t radar_presence_delay = 0;
-  getRadarRangeSettings(&radar_minimum_gate, &radar_maximum_gate,
-                        &radar_presence_delay);
-  uint16_t radar_trigger_threshold[16];
-  uint16_t radar_maintain_threshold[16];
-  getRadarGateThresholdSettings(radar_trigger_threshold, radar_maintain_threshold,
-                                16);
 
-  static char gate_json[160];
+  char gate_json[160];
   char *g = gate_json;
   size_t remaining = sizeof(gate_json);
   int written = snprintf(g, remaining, "[");
@@ -603,54 +528,7 @@ static esp_err_t sensors_handler(httpd_req_t *req) {
   }
   snprintf(g, remaining, "]");
 
-  static char calibration_peaks_json[160];
-  char *cp = calibration_peaks_json;
-  remaining = sizeof(calibration_peaks_json);
-  written = snprintf(cp, remaining, "[");
-  cp += written;
-  remaining -= written;
-  for (size_t i = 0; i < 16 && remaining > 1; i++) {
-    written = snprintf(cp, remaining, "%s%u", i == 0 ? "" : ",",
-                       (unsigned int)calibration_peaks[i]);
-    if (written < 0 || (size_t)written >= remaining) {
-      break;
-    }
-    cp += written;
-    remaining -= written;
-  }
-  snprintf(cp, remaining, "]");
-
-  static char trigger_threshold_json[160];
-  static char maintain_threshold_json[160];
-  char *tt = trigger_threshold_json;
-  char *mt = maintain_threshold_json;
-  size_t trigger_remaining = sizeof(trigger_threshold_json);
-  size_t maintain_remaining = sizeof(maintain_threshold_json);
-  int trigger_written = snprintf(tt, trigger_remaining, "[");
-  int maintain_written = snprintf(mt, maintain_remaining, "[");
-  tt += trigger_written;
-  mt += maintain_written;
-  trigger_remaining -= trigger_written;
-  maintain_remaining -= maintain_written;
-  for (size_t i = 0; i < 16 && trigger_remaining > 1 && maintain_remaining > 1; i++) {
-    trigger_written = snprintf(tt, trigger_remaining, "%s%u", i == 0 ? "" : ",",
-                               (unsigned int)radar_trigger_threshold[i]);
-    maintain_written = snprintf(mt, maintain_remaining, "%s%u", i == 0 ? "" : ",",
-                                (unsigned int)radar_maintain_threshold[i]);
-    if (trigger_written < 0 || maintain_written < 0 ||
-        (size_t)trigger_written >= trigger_remaining ||
-        (size_t)maintain_written >= maintain_remaining) {
-      break;
-    }
-    tt += trigger_written;
-    mt += maintain_written;
-    trigger_remaining -= trigger_written;
-    maintain_remaining -= maintain_written;
-  }
-  snprintf(tt, trigger_remaining, "]");
-  snprintf(mt, maintain_remaining, "]");
-
-  static char response[3072];
+  char response[1536];
   int response_len = snprintf(
       response, sizeof(response),
       "{\"radar_active\":%s,\"daylight\":%s,\"light_raw\":%d,"
@@ -665,14 +543,7 @@ static esp_err_t sensors_handler(httpd_req_t *req) {
       "\"radar_energy_distance_cm\":%u,\"radar_gate_energy\":%s,"
       "\"radar_uart_present\":%s,\"radar_uart_range\":%d,"
       "\"radar_uart_last_rx_ms\":%lu,\"radar_uart_age_ms\":%lu,"
-      "\"radar_uart_last_text\":\"%s\",\"radar_uart_last_hex\":\"%s\","
-      "\"radar_calibration_active\":%s,\"radar_calibration_ready\":%s,"
-      "\"radar_calibration_applied\":%s,\"radar_calibration_elapsed_ms\":%lu,"
-      "\"radar_calibration_samples\":%lu,\"radar_calibration_move_factor\":%.2f,"
-      "\"radar_calibration_still_factor\":%.2f,\"radar_calibration_peaks\":%s,"
-      "\"radar_minimum_gate\":%u,\"radar_maximum_gate\":%u,"
-      "\"radar_presence_delay\":%u,\"radar_trigger_threshold\":%s,"
-      "\"radar_maintain_threshold\":%s}",
+      "\"radar_uart_last_text\":\"%s\",\"radar_uart_last_hex\":\"%s\"}",
       radarActive ? "true" : "false", daylightActive ? "true" : "false",
       lightRaw, LIGHT_DAY_THRESHOLD, (unsigned long)radarMotionCount,
       (unsigned long)darkAlarmCount, (unsigned long)localRadarBuzzerCount,
@@ -693,14 +564,7 @@ static esp_err_t sensors_handler(httpd_req_t *req) {
       (unsigned long)radar_uart_last_rx,
       radar_uart_last_rx == 0 ? 0 : (unsigned long)(now - radar_uart_last_rx),
       radar_uart_text.c_str(),
-      radar_uart_hex.c_str(), calibration_active ? "true" : "false",
-      calibration_ready ? "true" : "false",
-      calibration_applied ? "true" : "false",
-      (unsigned long)calibration_elapsed_ms,
-      (unsigned long)calibration_samples, calibration_move_factor,
-      calibration_still_factor, calibration_peaks_json, radar_minimum_gate,
-      radar_maximum_gate, radar_presence_delay, trigger_threshold_json,
-      maintain_threshold_json);
+      radar_uart_hex.c_str());
   if (response_len < 0) {
     return httpd_resp_send_500(req);
   }
@@ -713,129 +577,6 @@ static esp_err_t sensors_handler(httpd_req_t *req) {
   httpd_resp_set_hdr(req, "Cache-Control", "no-store");
   return httpd_resp_send(req, response, response_len);
 #endif
-}
-
-static esp_err_t radar_calibration_handler(httpd_req_t *req) {
-  char *buf = NULL;
-  char action[16] = "";
-  if (parse_get(req, &buf) != ESP_OK) {
-    return ESP_FAIL;
-  }
-  if (httpd_query_key_value(buf, "action", action, sizeof(action)) != ESP_OK) {
-    free(buf);
-    httpd_resp_send_404(req);
-    return ESP_FAIL;
-  }
-
-  bool ok = false;
-  if (!strcmp(action, "start")) {
-    char move[16] = "0.5";
-    char still[16] = "0.5";
-    httpd_query_key_value(buf, "move_factor", move, sizeof(move));
-    httpd_query_key_value(buf, "still_factor", still, sizeof(still));
-    ok = startRadarCalibration(strtof(move, NULL), strtof(still, NULL));
-  } else if (!strcmp(action, "cancel")) {
-    ok = cancelRadarCalibration();
-  } else if (!strcmp(action, "apply")) {
-    ok = applyRadarCalibration();
-  }
-  free(buf);
-
-  if (!ok) {
-    httpd_resp_set_status(req, "409 Conflict");
-    httpd_resp_set_type(req, "application/json");
-    set_close_headers(req);
-    return httpd_resp_sendstr(req, "{\"ok\":false}");
-  }
-  httpd_resp_set_type(req, "application/json");
-  set_close_headers(req);
-  return httpd_resp_sendstr(req, "{\"ok\":true}");
-}
-
-static esp_err_t radar_range_handler(httpd_req_t *req) {
-  char *buf = NULL;
-  char min_gate[8];
-  char max_gate[8];
-  char delay[8];
-  if (parse_get(req, &buf) != ESP_OK) {
-    return ESP_FAIL;
-  }
-  const bool valid =
-      httpd_query_key_value(buf, "min_gate", min_gate, sizeof(min_gate)) == ESP_OK &&
-      httpd_query_key_value(buf, "max_gate", max_gate, sizeof(max_gate)) == ESP_OK &&
-      httpd_query_key_value(buf, "delay", delay, sizeof(delay)) == ESP_OK;
-  if (!valid) {
-    free(buf);
-    httpd_resp_send_404(req);
-    return ESP_FAIL;
-  }
-  const bool ok = applyRadarRangeSettings((uint8_t)atoi(min_gate),
-                                          (uint8_t)atoi(max_gate),
-                                          (uint8_t)atoi(delay));
-  free(buf);
-  httpd_resp_set_type(req, "application/json");
-  set_close_headers(req);
-  if (!ok) {
-    httpd_resp_set_status(req, "409 Conflict");
-    return httpd_resp_sendstr(req, "{\"ok\":false}");
-  }
-  return httpd_resp_sendstr(req, "{\"ok\":true}");
-}
-
-static esp_err_t radar_threshold_handler(httpd_req_t *req) {
-  char *buf = NULL;
-  char gate[8];
-  char trigger[12];
-  char maintain[12];
-  if (parse_get(req, &buf) != ESP_OK) {
-    return ESP_FAIL;
-  }
-  const bool valid =
-      httpd_query_key_value(buf, "gate", gate, sizeof(gate)) == ESP_OK &&
-      httpd_query_key_value(buf, "trigger", trigger, sizeof(trigger)) == ESP_OK &&
-      httpd_query_key_value(buf, "maintain", maintain, sizeof(maintain)) == ESP_OK;
-  if (!valid) {
-    free(buf);
-    httpd_resp_send_404(req);
-    return ESP_FAIL;
-  }
-  const long trigger_value = strtol(trigger, NULL, 10);
-  const long maintain_value = strtol(maintain, NULL, 10);
-  const bool valid_values = trigger_value >= 0 && trigger_value <= 65535 &&
-      maintain_value >= 0 && maintain_value <= 65535;
-  const bool ok = valid_values && applyRadarGateThresholdSettings(
-      (uint8_t)atoi(gate), (uint16_t)trigger_value, (uint16_t)maintain_value);
-  free(buf);
-  httpd_resp_set_type(req, "application/json");
-  set_close_headers(req);
-  if (!ok) {
-    httpd_resp_set_status(req, "409 Conflict");
-    return httpd_resp_sendstr(req, "{\"ok\":false}");
-  }
-  return httpd_resp_sendstr(req, "{\"ok\":true}");
-}
-
-static esp_err_t wifi_profile_handler(httpd_req_t *req) {
-  char *buf = NULL;
-  char mode[16] = "";
-  if (parse_get(req, &buf) != ESP_OK) {
-    return ESP_FAIL;
-  }
-  const bool has_mode =
-      httpd_query_key_value(buf, "mode", mode, sizeof(mode)) == ESP_OK;
-  const bool ok = has_mode && requestPreferredWifiProfile(mode);
-  free(buf);
-
-  httpd_resp_set_type(req, "application/json");
-  set_close_headers(req);
-  if (!ok) {
-    httpd_resp_set_status(req, "400 Bad Request");
-    return httpd_resp_sendstr(req, "{\"ok\":false}");
-  }
-  char response[64];
-  snprintf(response, sizeof(response), "{\"ok\":true,\"mode\":\"%s\"}",
-           getPreferredWifiProfile());
-  return httpd_resp_sendstr(req, response);
 }
 
 static esp_err_t xclk_handler(httpd_req_t *req) {
@@ -993,102 +734,14 @@ static esp_err_t buzzer_handler(httpd_req_t *req) {
   return httpd_resp_send(req, response, response_len);
 }
 
-static void startStreamServer() {
-#if !CAMERA_DISABLED_TEST
-  if (stream_httpd != NULL) {
-    return;
-  }
-
-  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  config.stack_size = 8192;
-  // A one-second send timeout tears down otherwise healthy streams whenever
-  // 2.4 GHz Wi-Fi briefly retransmits. CAMERA_GRAB_LATEST prevents this from
-  // building a stale-frame backlog while the socket catches up.
-  config.send_wait_timeout = 5;
-  config.recv_wait_timeout = 1;
-  config.lru_purge_enable = true;
-  config.max_open_sockets = 3;
-  config.backlog_conn = 1;
-  config.max_uri_handlers = 4;
-  config.server_port = 81;
-  config.ctrl_port = 32769;
-
-  httpd_uri_t stream_uri = {.uri = "/stream",
-                            .method = HTTP_GET,
-                            .handler = stream_handler,
-                            .user_ctx = NULL};
-
-  if (httpd_start(&stream_httpd, &config) == ESP_OK) {
-    httpd_register_uri_handler(stream_httpd, &stream_uri);
-    remoteLogln("[STREAM] server started port=81");
-  } else {
-    stream_httpd = NULL;
-    remoteLogln("[STREAM] server start failed");
-  }
-#else
-  remoteLogln("[CAMERA-TEST] stream server disabled with camera disabled");
-#endif
-}
-
-static esp_err_t stream_reset_handler(httpd_req_t *req) {
-  httpd_handle_t old_stream = stream_httpd;
-  stream_httpd = NULL;
-  streamClientActive = false;
-  streamRestartCount++;
-
-  if (old_stream != NULL) {
-    remoteLogf("[STREAM] reset requested count=%lu\n",
-               (unsigned long)streamRestartCount);
-    httpd_stop(old_stream);
-  } else {
-    remoteLogf("[STREAM] reset requested count=%lu old_server=none\n",
-               (unsigned long)streamRestartCount);
-  }
-  startStreamServer();
-
-  char response[96];
-  int response_len = snprintf(response, sizeof(response),
-                              "{\"stream_reset\":true,\"count\":%lu}",
-                              (unsigned long)streamRestartCount);
-  httpd_resp_set_type(req, "application/json");
-  set_close_headers(req);
-  return httpd_resp_send(req, response, response_len);
-}
-
-static esp_err_t camera_reset_handler(httpd_req_t *req) {
-  httpd_handle_t old_stream = stream_httpd;
-  stream_httpd = NULL;
-  streamClientActive = false;
-  streamRestartCount++;
-
-  if (old_stream != NULL) {
-    remoteLogf("[CAMERA] reset stopping stream count=%lu\n",
-               (unsigned long)streamRestartCount);
-    httpd_stop(old_stream);
-  }
-
-  bool ok = initCameraHardware();
-  startStreamServer();
-
-  char response[96];
-  int response_len = snprintf(response, sizeof(response),
-                              "{\"camera_reset\":%s,\"stream_restarts\":%lu}",
-                              ok ? "true" : "false",
-                              (unsigned long)streamRestartCount);
-  httpd_resp_set_type(req, "application/json");
-  set_close_headers(req);
-  return httpd_resp_send(req, response, response_len);
-}
-
 void startCameraServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  config.stack_size = 8192;
   config.send_wait_timeout = 1;
   config.recv_wait_timeout = 1;
   config.lru_purge_enable = true;
   config.max_open_sockets = 7;
   config.backlog_conn = 2;
-  config.max_uri_handlers = 19;
+  config.max_uri_handlers = 18;
 
   httpd_uri_t index_uri = {.uri = "/",
                            .method = HTTP_GET,
@@ -1118,34 +771,14 @@ void startCameraServer() {
                              .method = HTTP_GET,
                              .handler = sensors_handler,
                              .user_ctx = NULL};
+  httpd_uri_t stream_uri = {.uri = "/stream",
+                            .method = HTTP_GET,
+                            .handler = stream_handler,
+                            .user_ctx = NULL};
   httpd_uri_t buzzer_uri = {.uri = "/buzzer",
                             .method = HTTP_GET,
-                             .handler = buzzer_handler,
-                             .user_ctx = NULL};
-  httpd_uri_t radar_calibration_uri = {.uri = "/radar/calibration",
-                                       .method = HTTP_GET,
-                                       .handler = radar_calibration_handler,
-                                       .user_ctx = NULL};
-  httpd_uri_t radar_range_uri = {.uri = "/radar/range",
-                                 .method = HTTP_GET,
-                                 .handler = radar_range_handler,
-                                 .user_ctx = NULL};
-  httpd_uri_t radar_threshold_uri = {.uri = "/radar/threshold",
-                                     .method = HTTP_GET,
-                                      .handler = radar_threshold_handler,
-                                      .user_ctx = NULL};
-  httpd_uri_t wifi_profile_uri = {.uri = "/wifi/profile",
-                                  .method = HTTP_GET,
-                                  .handler = wifi_profile_handler,
-                                  .user_ctx = NULL};
-  httpd_uri_t stream_reset_uri = {.uri = "/stream_reset",
-                                  .method = HTTP_GET,
-                                  .handler = stream_reset_handler,
-                                  .user_ctx = NULL};
-  httpd_uri_t camera_reset_uri = {.uri = "/camera_reset",
-                                  .method = HTTP_GET,
-                                  .handler = camera_reset_handler,
-                                  .user_ctx = NULL};
+                            .handler = buzzer_handler,
+                            .user_ctx = NULL};
 
   ra_filter_init(&ra_filter, 20);
 
@@ -1158,15 +791,17 @@ void startCameraServer() {
     httpd_register_uri_handler(camera_httpd, &logs_uri);
     httpd_register_uri_handler(camera_httpd, &sensors_uri);
     httpd_register_uri_handler(camera_httpd, &buzzer_uri);
-    httpd_register_uri_handler(camera_httpd, &radar_calibration_uri);
-    httpd_register_uri_handler(camera_httpd, &radar_range_uri);
-    httpd_register_uri_handler(camera_httpd, &radar_threshold_uri);
-    httpd_register_uri_handler(camera_httpd, &wifi_profile_uri);
-    httpd_register_uri_handler(camera_httpd, &stream_reset_uri);
-    httpd_register_uri_handler(camera_httpd, &camera_reset_uri);
   }
 
-  startStreamServer();
+#if !CAMERA_DISABLED_TEST
+  config.server_port += 1;
+  config.ctrl_port += 1;
+  if (httpd_start(&stream_httpd, &config) == ESP_OK) {
+    httpd_register_uri_handler(stream_httpd, &stream_uri);
+  }
+#else
+  remoteLogln("[CAMERA-TEST] stream server disabled with camera disabled");
+#endif
 }
 
 void setupLedFlash() {

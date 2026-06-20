@@ -1,3 +1,4 @@
+#line 1 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\app_httpd.cpp"
 // Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
 #include "Arduino.h"
 #include "board_config.h"
@@ -105,8 +106,6 @@ extern void getRadarRangeSettings(uint8_t *minimumGate, uint8_t *maximumGate,
                                   uint8_t *presenceDelay);
 extern void getRadarGateThresholdSettings(uint16_t *trigger, uint16_t *maintain,
                                           size_t count);
-extern bool requestPreferredWifiProfile(const char *profile);
-extern const char *getPreferredWifiProfile();
 extern bool initCameraHardware();
 
 typedef struct {
@@ -815,29 +814,6 @@ static esp_err_t radar_threshold_handler(httpd_req_t *req) {
   return httpd_resp_sendstr(req, "{\"ok\":true}");
 }
 
-static esp_err_t wifi_profile_handler(httpd_req_t *req) {
-  char *buf = NULL;
-  char mode[16] = "";
-  if (parse_get(req, &buf) != ESP_OK) {
-    return ESP_FAIL;
-  }
-  const bool has_mode =
-      httpd_query_key_value(buf, "mode", mode, sizeof(mode)) == ESP_OK;
-  const bool ok = has_mode && requestPreferredWifiProfile(mode);
-  free(buf);
-
-  httpd_resp_set_type(req, "application/json");
-  set_close_headers(req);
-  if (!ok) {
-    httpd_resp_set_status(req, "400 Bad Request");
-    return httpd_resp_sendstr(req, "{\"ok\":false}");
-  }
-  char response[64];
-  snprintf(response, sizeof(response), "{\"ok\":true,\"mode\":\"%s\"}",
-           getPreferredWifiProfile());
-  return httpd_resp_sendstr(req, response);
-}
-
 static esp_err_t xclk_handler(httpd_req_t *req) {
   char *buf = NULL;
   char xclk_value[32];
@@ -1088,7 +1064,7 @@ void startCameraServer() {
   config.lru_purge_enable = true;
   config.max_open_sockets = 7;
   config.backlog_conn = 2;
-  config.max_uri_handlers = 19;
+  config.max_uri_handlers = 18;
 
   httpd_uri_t index_uri = {.uri = "/",
                            .method = HTTP_GET,
@@ -1132,12 +1108,8 @@ void startCameraServer() {
                                  .user_ctx = NULL};
   httpd_uri_t radar_threshold_uri = {.uri = "/radar/threshold",
                                      .method = HTTP_GET,
-                                      .handler = radar_threshold_handler,
-                                      .user_ctx = NULL};
-  httpd_uri_t wifi_profile_uri = {.uri = "/wifi/profile",
-                                  .method = HTTP_GET,
-                                  .handler = wifi_profile_handler,
-                                  .user_ctx = NULL};
+                                     .handler = radar_threshold_handler,
+                                     .user_ctx = NULL};
   httpd_uri_t stream_reset_uri = {.uri = "/stream_reset",
                                   .method = HTTP_GET,
                                   .handler = stream_reset_handler,
@@ -1161,7 +1133,6 @@ void startCameraServer() {
     httpd_register_uri_handler(camera_httpd, &radar_calibration_uri);
     httpd_register_uri_handler(camera_httpd, &radar_range_uri);
     httpd_register_uri_handler(camera_httpd, &radar_threshold_uri);
-    httpd_register_uri_handler(camera_httpd, &wifi_profile_uri);
     httpd_register_uri_handler(camera_httpd, &stream_reset_uri);
     httpd_register_uri_handler(camera_httpd, &camera_reset_uri);
   }

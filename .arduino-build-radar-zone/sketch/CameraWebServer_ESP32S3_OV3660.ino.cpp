@@ -1,3 +1,5 @@
+#include <Arduino.h>
+#line 1 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
 #include "esp_camera.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
@@ -76,34 +78,84 @@ static uint32_t nextWifiReconnectAttemptMs = 0;
 static uint32_t wifiReconnectBackoffMs = 10000;
 static bool previousRadarActive = false;
 static char lastConnectedWifiProfile[20] = "";
-static char preferredWifiProfile[20] = "auto";
-static bool wifiProfileSwitchPending = false;
-static uint32_t wifiProfileSwitchAtMs = 0;
 static const uint32_t RADAR_UART_BAUD_CANDIDATES[] = {RADAR_UART_BAUD, 256000};
 static size_t radarUartBaudIndex = 0;
 static uint32_t lastRadarUartBaudSwitchMs = 0;
 static WiFiServer simpleHttpServer(80);
 
-const char *getPreferredWifiProfile() {
-  return preferredWifiProfile;
-}
-
-bool requestPreferredWifiProfile(const char *profile) {
-  if (profile == NULL ||
-      (strcmp(profile, "auto") != 0 && strcmp(profile, "normal") != 0 &&
-       strcmp(profile, "hotspot") != 0)) {
-    return false;
-  }
-  strncpy(preferredWifiProfile, profile, sizeof(preferredWifiProfile));
-  preferredWifiProfile[sizeof(preferredWifiProfile) - 1] = '\0';
-  settingsPrefs.putString("wifi_profile", preferredWifiProfile);
-  wifiProfileSwitchPending = true;
-  // Return the HTTP response before disconnecting the network used by the app.
-  wifiProfileSwitchAtMs = millis() + 800;
-  remoteLogf("[WIFI] requested profile=%s\n", preferredWifiProfile);
-  return true;
-}
-
+#line 84 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+static void appendRemoteLogLocked(const char *message);
+#line 94 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void initRemoteLogBuffer();
+#line 103 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void remoteLogf(const char *format, ...);
+#line 119 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void remoteLogln(const char *message);
+#line 130 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+String getRemoteLogSnapshot(bool clearAfterRead);
+#line 143 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+String getRadarUartLastHexSnapshot();
+#line 153 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+String getRadarUartLastTextSnapshot();
+#line 163 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void getRadarGateEnergySnapshot(uint16_t *out, size_t count);
+#line 177 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+bool startRadarCalibration(float moveFactor, float stillFactor);
+#line 201 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+bool cancelRadarCalibration();
+#line 215 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void getRadarCalibrationStatus(bool *active, bool *ready, bool *applied, uint32_t *elapsedMs, uint32_t *sampleCount, float *moveFactor, float *stillFactor, uint16_t *peaks, size_t peakCount);
+#line 249 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void getRadarRangeSettings(uint8_t *minimumGate, uint8_t *maximumGate, uint8_t *presenceDelay);
+#line 256 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void getRadarGateThresholdSettings(uint16_t *trigger, uint16_t *maintain, size_t count);
+#line 273 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+static void pulseBuzzerFor(uint32_t durationMs);
+#line 289 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void beginRadarUart(uint32_t baud);
+#line 313 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void sendRadarUartBytes(const char *label, const uint8_t *data, size_t len);
+#line 319 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void sendLd2420InitCommands();
+#line 346 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+static void sendLd2420GateThresholds(uint8_t gate, uint16_t moveThreshold, uint16_t stillThreshold);
+#line 360 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+bool applyRadarRangeSettings(uint8_t minimumGate, uint8_t maximumGate, uint8_t presenceDelay);
+#line 401 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+bool applyRadarGateThresholdSettings(uint8_t gate, uint16_t trigger, uint16_t maintain);
+#line 438 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+bool applyRadarCalibration();
+#line 506 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+static bool isLd2420EnergyFrame(const uint8_t *frame, size_t len);
+#line 514 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+static void parseLd2420EnergyFrame(const uint8_t *frame, uint32_t nowMs);
+#line 583 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void readRadarUart();
+#line 730 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void readAlarmSensors();
+#line 798 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+static void sendSimpleHttpJson(WiFiClient &client, const char *body);
+#line 810 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+static void handleSimpleHttpClient();
+#line 861 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+const char * wifiDisconnectReasonName(uint8_t reason);
+#line 898 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void onWiFiEvent(arduino_event_id_t event, arduino_event_info_t info);
+#line 925 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+static bool hasWifiSsid(const char *networkSsid);
+#line 929 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+static void configureWifiStationRadio();
+#line 949 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+static void resetWifiRadioForReconnect(const char *label);
+#line 959 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+static bool connectToWifiNetwork(const char *label, const char *networkSsid, const char *networkPassword, uint32_t timeoutMs);
+#line 1182 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+bool initCameraHardware();
+#line 1313 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void setup();
+#line 1462 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
+void loop();
+#line 84 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\CameraWebServer_ESP32S3_OV3660.ino"
 static void appendRemoteLogLocked(const char *message) {
   remoteLogBuffer += message;
   size_t overflow = remoteLogBuffer.length() > REMOTE_LOG_MAX_BYTES
@@ -413,8 +465,6 @@ bool applyRadarRangeSettings(uint8_t minimumGate, uint8_t maximumGate,
   radarMinimumGate = minimumGate;
   radarMaximumGate = maximumGate;
   radarPresenceDelay = presenceDelay;
-  radarZoneActive = false;
-  radarZoneLastDetectionMs = 0;
   settingsPrefs.putUChar("radar_min", minimumGate);
   settingsPrefs.putUChar("radar_max", maximumGate);
   settingsPrefs.putUChar("radar_delay", presenceDelay);
@@ -551,7 +601,7 @@ static void parseLd2420EnergyFrame(const uint8_t *frame, uint32_t nowMs) {
     memcpy(radarGateEnergy, gates, sizeof(radarGateEnergy));
     const uint8_t firstGate = radarMinimumGate > 15 ? 15 : radarMinimumGate;
     const uint8_t lastGate = radarMaximumGate > 15 ? 15 : radarMaximumGate;
-    for (int gate = firstGate; gate <= lastGate; gate++) {
+    for (uint8_t gate = firstGate; gate <= lastGate; gate++) {
       const uint16_t threshold = radarZoneActive
           ? radarMaintainThreshold[gate]
           : radarTriggerThreshold[gate];
@@ -968,10 +1018,6 @@ static void configureWifiStationRadio() {
       .policy = WIFI_COUNTRY_POLICY_AUTO,
   };
   esp_wifi_set_country(&wifiCountry);
-  // Keep the station on a 20 MHz channel.  At the measured weak link this
-  // is more tolerant of interference and needs less SNR than a 40 MHz link.
-  const esp_err_t bandwidthResult = esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);
-  remoteLogf("[WIFI] STA bandwidth=HT20 result=%d\n", (int)bandwidthResult);
   esp_wifi_set_ps(WIFI_PS_NONE);
 }
 
@@ -1087,10 +1133,10 @@ static bool connectToWifiNetwork(const char *label, const char *networkSsid,
       remoteLogf("[WIFI] profile=%s using DHCP\n", label);
     }
 
-    // Android can rotate or briefly withdraw its advertised BSSID while the
-    // hotspot is active. Let the ESP32 select the current BSSID/channel for
-    // this network instead of retrying a stale scan result.
-    bool usePinnedBssid = !isAndroidHotspot && targetFound && targetChannel > 0;
+    bool usePinnedBssid = targetFound && targetChannel > 0;
+    if (isAndroidHotspot) {
+      usePinnedBssid = usePinnedBssid && (attempt % 2 == 0);
+    }
     if (usePinnedBssid) {
       remoteLogf("[WIFI] profile=%s attempt=%u begin pinned bssid channel=%d\n",
                  label, attempt, targetChannel);
@@ -1159,39 +1205,6 @@ static bool connectToConfiguredWifi(uint32_t managerTimeoutMs = 0) {
 
     bool demoIsDifferent =
         hasWifiSsid(demoSsid) && (!hasWifiSsid(ssid) || strcmp(demoSsid, ssid) != 0);
-
-    if (strcmp(preferredWifiProfile, "normal") == 0) {
-      // A manually selected router must not strand the camera when its signal
-      // disappears. Try it briefly, then fail over to the known phone hotspot
-      // and remember that working profile for subsequent reconnects.
-      remoteLogln("[WIFI] preferred normal_wifi with hotspot failover");
-      if (connectToWifiNetwork("normal_wifi", ssid, password, 12000)) {
-        return true;
-      }
-      if (demoIsDifferent &&
-          connectToWifiNetwork("android_hotspot", demoSsid, demoPassword,
-                               30000)) {
-        strncpy(preferredWifiProfile, "hotspot", sizeof(preferredWifiProfile));
-        preferredWifiProfile[sizeof(preferredWifiProfile) - 1] = '\0';
-        settingsPrefs.putString("wifi_profile", preferredWifiProfile);
-        remoteLogln("[WIFI] normal_wifi unavailable; hotspot failover persisted");
-        return true;
-      }
-      remoteLogln("[WIFI] normal_wifi and hotspot unavailable, retrying...");
-      delay(2000);
-      continue;
-    }
-
-    if (strcmp(preferredWifiProfile, "hotspot") == 0) {
-      remoteLogln("[WIFI] preferred android_hotspot only");
-      if (connectToWifiNetwork("android_hotspot", demoSsid, demoPassword,
-                               90000)) {
-        return true;
-      }
-      remoteLogln("[WIFI] preferred android_hotspot unavailable, retrying...");
-      delay(2000);
-      continue;
-    }
 
     if (demoWifiOnly) {
       remoteLogln("[WIFI] demoWifiOnly enabled; trying android_hotspot only");
@@ -1263,21 +1276,16 @@ bool initCameraHardware() {
 
   // VGA provides the best useful detail once the WLAN has enough headroom.
   // At a weak RSSI it would turn a live stream into a slow sequence of stale
-  // frames, so start directly with QVGA in that case. At <= -85 dBm use
-  // QQVGA to keep the radio queue short rather than producing stale frames.
-  // CAMERA_GRAB_LATEST and two PSRAM buffers deliberately trade dropped
-  // frames for low latency.
+  // frames, so start directly with QVGA in that case. CAMERA_GRAB_LATEST and
+  // two PSRAM buffers deliberately trade dropped frames for low latency.
   const int initialRssi = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : -127;
-  // VGA has no useful retry margin when the hotspot fluctuates around
-  // -70 dBm. Reserve it for an actually strong link; QVGA keeps live video
-  // usable through short fades and is selected below that threshold.
-  const bool linkSupportsVga = initialRssi >= -62;
-  const bool linkIsVeryWeak = initialRssi <= -85;
+  // The measured Android-hotspot link sustains VGA at -73 dBm. Keep a small
+  // margin below that real-world result; below -75 dBm QVGA remains the
+  // low-latency fallback.
+  const bool linkSupportsVga = initialRssi >= -75;
   const CameraProbeConfig probes[] = {
       {"psram_vga_20_latest", 20000000, FRAMESIZE_VGA,
        CAMERA_GRAB_LATEST, CAMERA_FB_IN_PSRAM, 14, 2},
-      {"psram_qqvga_10_latest", 10000000, FRAMESIZE_QQVGA,
-       CAMERA_GRAB_LATEST, CAMERA_FB_IN_PSRAM, 25, 2},
       {"psram_qvga_15_latest", 15000000, FRAMESIZE_QVGA,
        CAMERA_GRAB_LATEST, CAMERA_FB_IN_PSRAM, 18, 2},
       {"psram_qvga_15_empty", 15000000, FRAMESIZE_QVGA,
@@ -1288,9 +1296,9 @@ bool initCameraHardware() {
        CAMERA_GRAB_WHEN_EMPTY, CAMERA_FB_IN_DRAM, 20, 1},
   };
 
-  const size_t firstProbe = linkSupportsVga ? 0 : (linkIsVeryWeak ? 1 : 2);
+  const size_t firstProbe = linkSupportsVga ? 0 : 1;
   remoteLogf("[CAMERA] link rssi=%d profile=%s\n", initialRssi,
-             linkSupportsVga ? "VGA" : (linkIsVeryWeak ? "QQVGA" : "QVGA"));
+             linkSupportsVga ? "VGA" : "QVGA");
 
   for (size_t i = firstProbe; i < sizeof(probes) / sizeof(probes[0]); i++) {
     if (probes[i].fbLocation == CAMERA_FB_IN_PSRAM && !hasPsram) {
@@ -1387,14 +1395,6 @@ void setup() {
              (unsigned int)ESP.getFreeHeap());
   remoteLogln("[BOOT] USB serial log active at 115200 baud");
   settingsPrefs.begin("vision", false);
-  String storedWifiProfile = settingsPrefs.getString("wifi_profile", "auto");
-  if (storedWifiProfile == "normal" || storedWifiProfile == "hotspot" ||
-      storedWifiProfile == "auto") {
-    strncpy(preferredWifiProfile, storedWifiProfile.c_str(),
-            sizeof(preferredWifiProfile));
-    preferredWifiProfile[sizeof(preferredWifiProfile) - 1] = '\0';
-  }
-  remoteLogf("[WIFI] preferred profile=%s\n", preferredWifiProfile);
   radarMinimumGate = settingsPrefs.getUChar("radar_min", radarMinimumGate);
   radarMaximumGate = settingsPrefs.getUChar("radar_max", radarMaximumGate);
   radarPresenceDelay = settingsPrefs.getUChar("radar_delay", radarPresenceDelay);
@@ -1540,16 +1540,6 @@ void loop() {
 
   uint32_t nowMs = millis();
 
-  if (wifiProfileSwitchPending &&
-      (int32_t)(nowMs - wifiProfileSwitchAtMs) >= 0) {
-    wifiProfileSwitchPending = false;
-    remoteLogf("[WIFI] switching to preferred profile=%s\n",
-               preferredWifiProfile);
-    WiFi.disconnect(false, false);
-    wifiDisconnectedSinceMs = nowMs;
-    nextWifiReconnectAttemptMs = nowMs;
-  }
-
   if (WiFi.status() == WL_CONNECTED) {
     wifiDisconnectedSinceMs = 0;
     nextWifiReconnectAttemptMs = 0;
@@ -1559,13 +1549,6 @@ void loop() {
       wifiDisconnectedSinceMs = nowMs;
       nextWifiReconnectAttemptMs = nowMs + 10000;
       remoteLogln("[WIFI] disconnected in loop, scheduling clean reconnect in 10000ms");
-    }
-    // The disconnect event may set wifiDisconnectedSinceMs before this loop
-    // runs. Always arm a reconnect timer so event ordering cannot leave Wi-Fi
-    // disconnected indefinitely.
-    if (nextWifiReconnectAttemptMs == 0) {
-      nextWifiReconnectAttemptMs = nowMs + 1000;
-      remoteLogln("[WIFI] event disconnect, scheduling clean reconnect in 1000ms");
     }
     uint32_t disconnectedForMs = nowMs - wifiDisconnectedSinceMs;
     if (nextWifiReconnectAttemptMs != 0 &&
@@ -1649,3 +1632,4 @@ void loop() {
 
   delay(5);
 }
+

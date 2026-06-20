@@ -1,0 +1,66 @@
+#line 1 "C:\\Users\\Julius\\Documents\\Arduino\\CameraWebServer_ESP32S3_OV3660\\vision_alarm\\config.json"
+{
+  "alarm": {
+    "cooldown_seconds": 5.0,
+    "image_dir": "vision_alarm/alarm_images",
+    "local_terminal_bell": false,
+    "pulse_ms": 1500,
+    "trigger_without_zones": false
+  },
+  "bytetrack": {
+    "frame_rate": 15,
+    "lost_track_buffer": 30,
+    "minimum_matching_threshold": 0.8,
+    "track_activation_threshold": 0.35
+  },
+  "confidence": 0.4,
+  "device": "0",
+  "esp32_host": "192.168.178.53",
+  "http_port": 80,
+  "image_size": 416,
+  "iou_threshold": 0.45,
+  "model": "yolo26s.pt",
+  "monitor_api": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 8766
+  },
+  "sensor_fusion": {
+    "dark_alarm_on_radar": false,
+    "enabled": false,
+    "fail_open_on_sensor_error": true,
+    "inactive_reset_seconds": 2.0,
+    "poll_interval_ms": 500,
+    "radar_hold_ms": 2500,
+    "require_daylight_for_vision": false
+  },
+  "show_window": true,
+  "snapshot_interval_ms": 120,
+  "source_mode": "snapshot",
+  "stream_port": 81,
+  "window_name": "ESP32 Vision Alarm",
+  "zone_resolution": {
+    "height": 480,
+    "width": 640
+  },
+  "zones": [
+    {
+      "id": "zone-1",
+      "name": "No-Go Zone 1",
+      "points": [
+        [
+          159,
+          165
+        ],
+        [
+          123,
+          242
+        ],
+        [
+          252,
+          252
+        ]
+      ]
+    }
+  ]
+}
